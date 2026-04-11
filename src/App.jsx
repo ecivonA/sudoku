@@ -255,6 +255,8 @@ export default function SudokuApp() {
     const handler = (e) => {
       // don't hijack browser shortcuts
       if (e.ctrlKey || e.metaKey || e.altKey) return;
+      // don't interfere when hidden mobile input has focus
+      if (hiddenInputRef.current && document.activeElement === hiddenInputRef.current) return;
 
       // arrow keys
       if (e.key === "ArrowUp")    { e.preventDefault(); moveSelection(-1,  0); return; }
