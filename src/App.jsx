@@ -183,6 +183,7 @@ export default function SudokuApp() {
   const [showHints,      setShowHints]      = useState(saved?.showHints  ?? false);
   const [resetConfirm,   setResetConfirm]   = useState(false);
   const [restoreConfirm, setRestoreConfirm] = useState(false);
+  const [showInputField, setShowInputField] = useState(false);
   const containerRef = useRef(null);
 
   // ── persist on every relevant change ─────────────────────────────────────
@@ -296,7 +297,7 @@ export default function SudokuApp() {
             if (cell.given) return g;
             const next = cloneGrid(g);
             next[r][c].value = cell.value === num ? null : num;
-            // advance after input
+            // advance after input only in input phase
             advanceToNext(r, c, next);
             return next;
           }
@@ -308,7 +309,7 @@ export default function SudokuApp() {
             const recomp = recomputeCandidates(next);
             setHistory(h => [...h, g]);
             setErrors(checkErrors(recomp));
-            advanceToNext(r, c, recomp);
+            // no advanceToNext in solve phase
             return recomp;
           } else {
             if (cell.value || cell.given) return g;
@@ -399,7 +400,7 @@ export default function SudokuApp() {
       if (next[r][c].value) next[r][c].manualExcluded = new Set();
       const recomp = recomputeCandidates(next);
       commit(recomp, grid);
-      advanceToNext(r, c, recomp);
+      // no advanceToNext in solve phase
       return;
     }
     if (cell.value || cell.given) return;
@@ -484,6 +485,11 @@ export default function SudokuApp() {
     setGrid(cloneGrid(bm.grid)); setHistory([...bm.history]);
     setErrors(checkErrors(bm.grid)); setBookmarks(bs => bs.slice(0,-1));
     setRestoreConfirm(false);
+    // set cursor to anchor cell if available
+    if (bm.anchorCell) {
+      const [ar, ac] = bm.anchorCell.split(",").map(Number);
+      setSelected([ar, ac]);
+    }
   };
 
   // track first cell changed after a bookmark
@@ -524,6 +530,12 @@ export default function SudokuApp() {
   const hasBM      = bookmarks.length > 0;
   const isComplete = phase === "solve" && grid.every(row => row.every(c => c.value)) && errors.size === 0;
 
+  // count how often each digit appears in the grid
+  const digitCount = Array(10).fill(0);
+  for (let r = 0; r < 9; r++)
+    for (let c = 0; c < 9; c++)
+      if (grid[r][c].value) digitCount[grid[r][c].value]++;
+
   const padHighlight = (n) => {
     if (!selected) return "none";
     const cell = grid[selected[0]][selected[1]];
@@ -542,6 +554,7 @@ export default function SudokuApp() {
     <div
       ref={containerRef}
       tabIndex={-1}
+      onClick={() => { setSelected(null); resetFlags(); }}
       style={{
         minHeight: "100vh",
         background: `linear-gradient(160deg, ${DARK} 0%, #1b2838 60%, #0a1628 100%)`,
@@ -599,7 +612,7 @@ export default function SudokuApp() {
         border: `2px solid ${phase === "input" ? LILAC : GOLD}`,
         borderRadius: "4px", width: "min(92vw,430px)", aspectRatio: "1",
         overflow: "hidden", transition: "border-color 0.4s",
-      }}>
+      }} onClick={e => e.stopPropagation()}>
         {grid.map((row, r) => row.map((cell, c) => {
           const key   = `${r},${c}`;
           const sel   = isSel(r, c);
@@ -693,6 +706,8 @@ export default function SudokuApp() {
       }}>
         {[1,2,3,4,5,6,7,8,9].map(n => {
           const ph = padHighlight(n);
+          const full = digitCount[n] >= 9;
+          if (full) return null; // hide completed digits
           let padBg = phase==="input" ? `${LILAC}12` : `${GOLD}10`;
           let padColor = phase==="input" ? LILAC : GOLD;
           if (ph==="remove")     { padBg=`${BLUE}18`;   padColor=BLUE; }
@@ -709,6 +724,36 @@ export default function SudokuApp() {
           );
         })}
       </div>
+
+      {/* ── Mobile input field ── */}
+      {phase === "solve" && selected && (
+        <div style={{ width: "min(92vw,430px)", marginTop: "6px", display: "flex", gap: "6px", alignItems: "center" }}>
+          <button
+            onClick={e => { e.stopPropagation(); setShowInputField(f => !f); }}
+            style={btn(showInputField ? GREEN : GOLD, showInputField ? `${GREEN}22` : `${GOLD}10`, { flex: "0 0 auto" })}
+          >⌨ Eingabe</button>
+          {showInputField && (
+            <input
+              autoFocus
+              type="number" min="1" max="9"
+              placeholder="1–9"
+              onClick={e => e.stopPropagation()}
+              onChange={e => {
+                const val = parseInt(e.target.value);
+                if (val >= 1 && val <= 9) {
+                  window.dispatchEvent(new CustomEvent("sudoku-input", { detail: { num: val } }));
+                  e.target.value = "";
+                }
+              }}
+              style={{
+                flex: 1, background: `${GOLD}10`, border: `1px solid ${GOLD}55`,
+                color: GOLD, borderRadius: "6px", padding: "8px",
+                fontSize: "1rem", fontFamily: "Georgia,serif", outline: "none",
+              }}
+            />
+          )}
+        </div>
+      )}
 
       {/* ── Phase 1 buttons ── */}
       {phase === "input" && (
