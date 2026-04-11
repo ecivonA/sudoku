@@ -221,6 +221,28 @@ export default function SudokuApp() {
     }
   }, []);
 
+  // ── paste handler (Ctrl+V with 81-char sudoku string) ────────────────────
+
+  useEffect(() => {
+    const handlePaste = (e) => {
+      const text = (e.clipboardData || window.clipboardData).getData("text").trim();
+      if (!/^[0-9]{81}$/.test(text)) return;
+      e.preventDefault();
+      const next = emptyGrid();
+      for (let i = 0; i < 81; i++) {
+        const val = parseInt(text[i]);
+        const r = Math.floor(i/9), c = i%9;
+        if (val >= 1 && val <= 9) { next[r][c].value = val; next[r][c].given = true; }
+      }
+      const computed = recomputeCandidates(next);
+      setGrid(computed); setPhase("input"); setHistory([]); setBookmarks([]);
+      setErrors(new Set()); setSelected([0,0]); setCandidateMode(false);
+      setResetConfirm(false); setRestoreConfirm(false);
+    };
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, []);
+
   // ── keyboard handler ──────────────────────────────────────────────────────
 
   useEffect(() => {
