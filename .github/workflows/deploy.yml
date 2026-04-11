@@ -1,10 +1,20 @@
 name: Deploy to GitHub Pages
+
 on:
   push:
     branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -12,12 +22,8 @@ jobs:
           node-version: 22
       - run: npm install
       - run: npm run build
-      - uses: actions/deploy-pages@v4
-        with:
-          folder: dist
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
-    permissions:
-      pages: write
-      id-token: write
+      - id: deployment
+        uses: actions/deploy-pages@v4
