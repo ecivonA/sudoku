@@ -376,6 +376,22 @@ export default function SudokuApp() {
   // ── cell click ────────────────────────────────────────────────────────────
 
   const handleCellClick = (r, c) => {
+    // ── highlightNum quick-entry mode ──
+    if (highlightNum && !selected) {
+      const cell = grid[r][c];
+      if (!cell.given && !cell.value) {
+        // enter the number, stay in highlight mode
+        const next = cloneGrid(grid);
+        next[r][c].value = highlightNum;
+        next[r][c].manualExcluded = new Set();
+        const recomp = recomputeCandidates(next);
+        commit(recomp, grid);
+        // stay in highlight mode, no cursor
+        return;
+      }
+      // clicked on a non-free cell → exit highlight mode, select cell normally
+    }
+
     setSelected([r, c]);
     setHighlightNum(null);
     resetFlags();
@@ -646,7 +662,7 @@ export default function SudokuApp() {
 
           // highlightNum mode (no cursor active)
           const hnBlocked  = highlightNum && !selected && cell.value === highlightNum;
-          const hnConflict = highlightNum && !selected && !cell.value && (() => {
+          const hnConflict = highlightNum && !selected && !hnBlocked && (() => {
             const peers = getPeers(r, c);
             for (const p of peers) {
               const [pr, pc] = p.split(",").map(Number);
@@ -744,19 +760,19 @@ export default function SudokuApp() {
         {[1,2,3,4,5,6,7,8,9].map(n => {
           const ph = padHighlight(n);
           const full = digitCount[n] >= 9;
-          if (full) return null; // hide completed digits
           let padBg = phase==="input" ? `${LILAC}12` : `${GOLD}10`;
           let padColor = phase==="input" ? LILAC : GOLD;
-          if (ph==="remove")     { padBg=`${BLUE}18`;   padColor=BLUE; }
-          if (ph==="restore")    { padBg=`${ORANGE}20`; padColor=ORANGE; }
-          if (ph==="impossible") { padBg="transparent"; padColor=`${GOLD}22`; }
-          if (!selected && highlightNum === n) { padBg=`${GREEN}30`; padColor=GREEN; }
+          if (full) { padBg = "transparent"; padColor = `${MID}99`; }
+          else if (ph==="remove")     { padBg=`${BLUE}18`;   padColor=BLUE; }
+          else if (ph==="restore")    { padBg=`${ORANGE}20`; padColor=ORANGE; }
+          else if (ph==="impossible") { padBg="transparent"; padColor=`${GOLD}22`; }
+          if (!full && !selected && highlightNum === n) { padBg=`${GREEN}30`; padColor=GREEN; }
           return (
-            <button key={n} onClick={() => handleInput(n)} style={{
+            <button key={n} onClick={() => !full && handleInput(n)} style={{
               aspectRatio: "1", borderRadius: "6px", border: `1px solid ${padColor}55`,
               background: padBg, color: padColor,
               fontSize: "clamp(0.9rem,3vw,1.3rem)", fontWeight: "bold",
-              cursor: ph==="impossible" ? "default" : "pointer",
+              cursor: full || ph==="impossible" ? "default" : "pointer",
               fontFamily: "Georgia,serif", transition: "all 0.12s",
             }}>{n}</button>
           );
@@ -792,11 +808,13 @@ export default function SudokuApp() {
               const sel = selectedRef.current;
               if (!sel) return;
               const [r, c] = sel;
+              const advance = e.key === "0";
               setGrid(g => {
                 const cell = g[r][c];
                 if (cell.given) return g;
                 const next = cloneGrid(g);
                 next[r][c].value = null;
+                if (advance) advanceToNext(r, c, next);
                 return next;
               });
             }
