@@ -183,8 +183,13 @@ export default function SudokuApp() {
   const [showHints,      setShowHints]      = useState(saved?.showHints  ?? false);
   const [resetConfirm,   setResetConfirm]   = useState(false);
   const [restoreConfirm, setRestoreConfirm] = useState(false);
-  const [showInputField, setShowInputField] = useState(false);
+  const [highlightNum,   setHighlightNum]   = useState(null);
   const containerRef = useRef(null);
+  const hiddenInputRef = useRef(null);
+  const selectedRef = useRef(null);
+
+  // keep selectedRef in sync
+  useEffect(() => { selectedRef.current = selected; }, [selected]);
 
   // ── persist on every relevant change ─────────────────────────────────────
 
@@ -267,8 +272,11 @@ export default function SudokuApp() {
       // digit keys 1-9
       const digit = parseInt(e.key);
       if (digit >= 1 && digit <= 9) {
-        // We need access to current selected — use functional pattern via a ref trick
-        // Instead, dispatch a custom event carrying the digit
+        if (!selectedRef.current) {
+          // no cursor → highlight mode
+          setHighlightNum(n => n === digit ? null : digit);
+          return;
+        }
         window.dispatchEvent(new CustomEvent("sudoku-input", { detail: { num: digit } }));
         return;
       }
@@ -367,7 +375,13 @@ export default function SudokuApp() {
 
   const handleCellClick = (r, c) => {
     setSelected([r, c]);
+    setHighlightNum(null);
     resetFlags();
+    // focus hidden input to trigger mobile keyboard
+    if (hiddenInputRef.current) {
+      hiddenInputRef.current.value = "";
+      hiddenInputRef.current.focus();
+    }
     if (phase === "solve" && !candidateMode) {
       const cell = grid[r][c];
       if (!cell.value && !cell.given && cell.candidates.size === 1) {
@@ -382,7 +396,10 @@ export default function SudokuApp() {
   // ── number pad click ──────────────────────────────────────────────────────
 
   const handleInput = useCallback((num) => {
-    if (!selected) return;
+    if (!selected) {
+      setHighlightNum(n => n === num ? null : num);
+      return;
+    }
     const [r, c] = selected;
     const cell = grid[r][c];
     if (phase === "input") {
@@ -554,7 +571,7 @@ export default function SudokuApp() {
     <div
       ref={containerRef}
       tabIndex={-1}
-      onClick={() => { setSelected(null); resetFlags(); }}
+      onClick={e => { if (e.target === e.currentTarget) { setSelected(null); setHighlightNum(null); resetFlags(); } }}
       style={{
         minHeight: "100vh",
         background: `linear-gradient(160deg, ${DARK} 0%, #1b2838 60%, #0a1628 100%)`,
@@ -625,6 +642,18 @@ export default function SudokuApp() {
           const isSingle = showHints && phase === "solve" && !cell.value && singles.has(key);
           const isPair   = showHints && phase === "solve" && !cell.value && !hasSingles && pairs.has(key);
 
+          // highlightNum mode (no cursor active)
+          const hnBlocked  = highlightNum && !selected && cell.value === highlightNum;
+          const hnConflict = highlightNum && !selected && !cell.value && (() => {
+            const peers = getPeers(r, c);
+            for (const p of peers) {
+              const [pr, pc] = p.split(",").map(Number);
+              if (grid[pr][pc].value === highlightNum) return true;
+            }
+            return false;
+          })();
+          const hnFree = highlightNum && !selected && !cell.value && !hnConflict;
+
           let bg = MID;
           let fg = phase === "input" ? (cell.value ? LILAC : `${LILAC}22`) : (cell.given ? LILAC : BLUE);
           let candFg = "rgba(201,168,76,0.85)";
@@ -634,6 +663,12 @@ export default function SudokuApp() {
             bg = phase === "input" ? `${LILAC}44` : GOLD;
             fg = phase === "input" ? "#fff" : DARK;
             candFg = `${DARK}cc`; candExclFg = `${DARK}44`;
+          } else if (hnBlocked) {
+            bg = "#2a4a2a"; fg = GREEN;  // has the number → green
+          } else if (hnConflict) {
+            bg = "#3a2020"; fg = `${RED}88`;  // blocked by peer → dark red
+          } else if (hnFree) {
+            bg = "#253040"; fg = `${BLUE}cc`;  // possible → highlighted
           } else if (smv) {
             bg = "#5c3f7a"; fg = "#fff"; candFg = "rgba(255,255,255,0.75)";
           } else if (grp) {
@@ -713,6 +748,7 @@ export default function SudokuApp() {
           if (ph==="remove")     { padBg=`${BLUE}18`;   padColor=BLUE; }
           if (ph==="restore")    { padBg=`${ORANGE}20`; padColor=ORANGE; }
           if (ph==="impossible") { padBg="transparent"; padColor=`${GOLD}22`; }
+          if (!selected && highlightNum === n) { padBg=`${GREEN}30`; padColor=GREEN; }
           return (
             <button key={n} onClick={() => handleInput(n)} style={{
               aspectRatio: "1", borderRadius: "6px", border: `1px solid ${padColor}55`,
@@ -725,34 +761,29 @@ export default function SudokuApp() {
         })}
       </div>
 
-      {/* ── Mobile input field ── */}
-      {phase === "solve" && selected && (
-        <div style={{ width: "min(92vw,430px)", marginTop: "6px", display: "flex", gap: "6px", alignItems: "center" }}>
-          <button
-            onClick={e => { e.stopPropagation(); setShowInputField(f => !f); }}
-            style={btn(showInputField ? GREEN : GOLD, showInputField ? `${GREEN}22` : `${GOLD}10`, { flex: "0 0 auto" })}
-          >⌨ Eingabe</button>
-          {showInputField && (
-            <input
-              autoFocus
-              type="number" min="1" max="9"
-              placeholder="1–9"
-              onClick={e => e.stopPropagation()}
-              onChange={e => {
-                const val = parseInt(e.target.value);
-                if (val >= 1 && val <= 9) {
-                  window.dispatchEvent(new CustomEvent("sudoku-input", { detail: { num: val } }));
-                  e.target.value = "";
-                }
-              }}
-              style={{
-                flex: 1, background: `${GOLD}10`, border: `1px solid ${GOLD}55`,
-                color: GOLD, borderRadius: "6px", padding: "8px",
-                fontSize: "1rem", fontFamily: "Georgia,serif", outline: "none",
-              }}
-            />
-          )}
-        </div>
+      {/* ── Hidden input for mobile keyboard ── */}
+      {phase === "input" && (
+        <input
+          ref={hiddenInputRef}
+          type="number" min="1" max="9"
+          style={{ position: "fixed", opacity: 0, pointerEvents: "none", width: 1, height: 1, top: 0, left: 0 }}
+          onClick={e => e.stopPropagation()}
+          onInput={e => {
+            const val = parseInt(e.target.value);
+            e.target.value = "";
+            const sel = selectedRef.current;
+            if (!sel || val < 1 || val > 9) return;
+            const [r, c] = sel;
+            setGrid(g => {
+              const cell = g[r][c];
+              if (cell.given) return g;
+              const next = cloneGrid(g);
+              next[r][c].value = cell.value === val ? null : val;
+              advanceToNext(r, c, next);
+              return next;
+            });
+          }}
+        />
       )}
 
       {/* ── Phase 1 buttons ── */}
