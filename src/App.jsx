@@ -772,7 +772,7 @@ export default function SudokuApp() {
           onKeyDown={e => {
             const val = parseInt(e.key);
             if (val >= 1 && val <= 9) {
-              e.preventDefault();
+              e.preventDefault(); // prevents onInput from firing too
               const sel = selectedRef.current;
               if (!sel) return;
               const [r, c] = sel;
@@ -795,26 +795,6 @@ export default function SudokuApp() {
                 if (cell.given) return g;
                 const next = cloneGrid(g);
                 next[r][c].value = null;
-                return next;
-              });
-            }
-          }}
-          onInput={e => {
-            // fallback for browsers that don't fire keydown reliably
-            const raw = e.target.value.replace(/\D/g, "");
-            e.target.value = "";
-            if (!raw) return;
-            const val = parseInt(raw[raw.length - 1]);
-            if (val >= 1 && val <= 9) {
-              const sel = selectedRef.current;
-              if (!sel) return;
-              const [r, c] = sel;
-              setGrid(g => {
-                const cell = g[r][c];
-                if (cell.given) return g;
-                const next = cloneGrid(g);
-                next[r][c].value = cell.value === val ? null : val;
-                advanceToNext(r, c, next);
                 return next;
               });
             }
