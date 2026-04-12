@@ -229,25 +229,26 @@ export default function SudokuApp() {
 
   // ── paste handler (Ctrl+V with 81-char sudoku string) ────────────────────
 
+  const handlePaste = useCallback((e) => {
+    const text = (e.clipboardData || window.clipboardData).getData("text").trim();
+    if (!/^[0-9]{81}$/.test(text)) return;
+    e.preventDefault();
+    const next = emptyGrid();
+    for (let i = 0; i < 81; i++) {
+      const val = parseInt(text[i]);
+      const r = Math.floor(i/9), c = i%9;
+      if (val >= 1 && val <= 9) { next[r][c].value = val; next[r][c].given = true; }
+    }
+    const computed = recomputeCandidates(next);
+    setGrid(computed); setPhase("input"); setHistory([]); setBookmarks([]);
+    setErrors(new Set()); setSelected([0,0]); setCandidateMode(false);
+    setResetConfirm(false); setRestoreConfirm(false);
+  }, []);
+
   useEffect(() => {
-    const handlePaste = (e) => {
-      const text = (e.clipboardData || window.clipboardData).getData("text").trim();
-      if (!/^[0-9]{81}$/.test(text)) return;
-      e.preventDefault();
-      const next = emptyGrid();
-      for (let i = 0; i < 81; i++) {
-        const val = parseInt(text[i]);
-        const r = Math.floor(i/9), c = i%9;
-        if (val >= 1 && val <= 9) { next[r][c].value = val; next[r][c].given = true; }
-      }
-      const computed = recomputeCandidates(next);
-      setGrid(computed); setPhase("input"); setHistory([]); setBookmarks([]);
-      setErrors(new Set()); setSelected([0,0]); setCandidateMode(false);
-      setResetConfirm(false); setRestoreConfirm(false);
-    };
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
-  }, []);
+  }, [handlePaste]);
 
   // ── keyboard handler ──────────────────────────────────────────────────────
 
@@ -283,10 +284,15 @@ export default function SudokuApp() {
         return;
       }
 
-      // 0, space, backspace, delete → clear + advance
+      // 0, space, backspace, delete → clear + advance/retreat
       if (e.key === "0" || e.key === " " || e.key === "Backspace" || e.key === "Delete") {
         e.preventDefault();
-        window.dispatchEvent(new CustomEvent("sudoku-clear", { detail: { advance: e.key === "0" || e.key === " " } }));
+        window.dispatchEvent(new CustomEvent("sudoku-clear", {
+          detail: {
+            advance: e.key === "0" || e.key === " ",
+            retreat: e.key === "Backspace",
+          }
+        }));
         return;
       }
     };
@@ -314,12 +320,11 @@ export default function SudokuApp() {
           if (!candidateMode) {
             if (cell.given) return g;
             const next = cloneGrid(g);
-            next[r][c].value = cell.value === num ? null : num;
-            if (next[r][c].value) next[r][c].manualExcluded = new Set();
+            next[r][c].value = num;
+            next[r][c].manualExcluded = new Set();
             const recomp = recomputeCandidates(next);
             setHistory(h => [...h, g]);
             setErrors(checkErrors(recomp));
-            // no advanceToNext in solve phase
             return recomp;
           } else {
             if (cell.value || cell.given) return g;
@@ -343,7 +348,7 @@ export default function SudokuApp() {
 
   useEffect(() => {
     const onClear = (e) => {
-      const { advance } = e.detail;
+      const { advance, retreat } = e.detail;
       setSelected(sel => {
         if (!sel) return sel;
         const [r, c] = sel;
@@ -366,6 +371,14 @@ export default function SudokuApp() {
           if (advance) advanceToNext(r, c, recomp);
           return recomp;
         });
+        // retreat one cell in input phase
+        if (phase === "input" && retreat) {
+          const idx = sel[0] * 9 + sel[1];
+          if (idx > 0) {
+            const pr = Math.floor((idx - 1) / 9), pc = (idx - 1) % 9;
+            return [pr, pc];
+          }
+        }
         return sel;
       });
     };
@@ -376,32 +389,56 @@ export default function SudokuApp() {
   // ── cell click ────────────────────────────────────────────────────────────
 
   const handleCellClick = (r, c) => {
-    // ── highlightNum quick-entry mode ──
+    const cell = grid[r][c];
+
+    // ── rot-modus aktiv: klick auf freies Feld → Zahl eintragen ──
     if (highlightNum && !selected) {
-      const cell = grid[r][c];
       if (!cell.given && !cell.value) {
-        // enter the number, stay in highlight mode
         const next = cloneGrid(grid);
         next[r][c].value = highlightNum;
         next[r][c].manualExcluded = new Set();
         const recomp = recomputeCandidates(next);
         commit(recomp, grid);
-        // stay in highlight mode, no cursor
+        let count = 0;
+        for (let rr = 0; rr < 9; rr++)
+          for (let cc = 0; cc < 9; cc++)
+            if (recomp[rr][cc].value === highlightNum) count++;
+        if (count >= 9) setHighlightNum(null);
         return;
       }
-      // clicked on a non-free cell → exit highlight mode, select cell normally
+      // klick auf Feld mit dieser Zahl → Rot-Modus aus
+      if (cell.value === highlightNum) { setHighlightNum(null); return; }
+      // klick auf Feld mit anderer Zahl → zu dieser Zahl wechseln
+      if (cell.value) { setHighlightNum(cell.value); return; }
+      setHighlightNum(null);
+      return;
     }
 
+    // ── spielphase: klick auf belegtes Feld ──
+    if (phase === "solve" && !candidateMode && cell.value) {
+      if (selected && selected[0] === r && selected[1] === c) {
+        // zweiter Klick auf dasselbe Feld → Rot-Modus
+        setSelected(null);
+        setHighlightNum(cell.value);
+        resetFlags();
+      } else {
+        // erster Klick → normaler Cursor
+        setSelected([r, c]);
+        setHighlightNum(null);
+        resetFlags();
+      }
+      return;
+    }
+
+    // ── normaler Klick: Feld auswählen ──
     setSelected([r, c]);
     setHighlightNum(null);
     resetFlags();
-    // focus hidden input to trigger mobile keyboard
     if (hiddenInputRef.current) {
       hiddenInputRef.current.value = "";
       hiddenInputRef.current.focus();
     }
     if (phase === "solve" && !candidateMode) {
-      const cell = grid[r][c];
       if (!cell.value && !cell.given && cell.candidates.size === 1) {
         const only = [...cell.candidates][0];
         const next = cloneGrid(grid);
@@ -414,16 +451,13 @@ export default function SudokuApp() {
   // ── number pad click ──────────────────────────────────────────────────────
 
   const handleInput = useCallback((num) => {
-    if (!selected) {
-      setHighlightNum(n => n === num ? null : num);
-      return;
-    }
+    if (!selected) return; // im Rot-Modus oder ohne Cursor: nichts tun
     const [r, c] = selected;
     const cell = grid[r][c];
     if (phase === "input") {
       if (cell.given) return;
       const next = cloneGrid(grid);
-      next[r][c].value = cell.value === num ? null : num;
+      next[r][c].value = num;
       setGrid(next);
       advanceToNext(r, c, next);
       return;
@@ -431,11 +465,10 @@ export default function SudokuApp() {
     if (!candidateMode) {
       if (cell.given) return;
       const next = cloneGrid(grid);
-      next[r][c].value = cell.value === num ? null : num;
-      if (next[r][c].value) next[r][c].manualExcluded = new Set();
+      next[r][c].value = num;
+      next[r][c].manualExcluded = new Set();
       const recomp = recomputeCandidates(next);
       commit(recomp, grid);
-      // no advanceToNext in solve phase
       return;
     }
     if (cell.value || cell.given) return;
@@ -763,10 +796,13 @@ export default function SudokuApp() {
           let padBg = phase==="input" ? `${LILAC}12` : `${GOLD}10`;
           let padColor = phase==="input" ? LILAC : GOLD;
           if (full) { padBg = "transparent"; padColor = `${MID}99`; }
-          else if (ph==="remove")     { padBg=`${BLUE}18`;   padColor=BLUE; }
+          else if (highlightNum && !selected) {
+            // rot-modus: alle ausgegraut außer aktiver Zahl
+            if (highlightNum === n) { padBg = `${RED}25`; padColor = RED; }
+            else { padBg = "transparent"; padColor = `${GOLD}22`; }
+          } else if (ph==="remove")     { padBg=`${BLUE}18`;   padColor=BLUE; }
           else if (ph==="restore")    { padBg=`${ORANGE}20`; padColor=ORANGE; }
           else if (ph==="impossible") { padBg="transparent"; padColor=`${GOLD}22`; }
-          if (!full && !selected && highlightNum === n) { padBg=`${GREEN}30`; padColor=GREEN; }
           return (
             <button key={n} onClick={() => !full && handleInput(n)} style={{
               aspectRatio: "1", borderRadius: "6px", border: `1px solid ${padColor}55`,
@@ -787,6 +823,7 @@ export default function SudokuApp() {
           inputMode="numeric"
           autoComplete="off"
           style={{ position: "fixed", opacity: 0, pointerEvents: "none", width: 1, height: 1, top: 0, left: 0 }}
+          onPaste={handlePaste}
           onKeyDown={e => {
             const val = parseInt(e.key);
             if (val >= 1 && val <= 9) {
@@ -809,6 +846,7 @@ export default function SudokuApp() {
               if (!sel) return;
               const [r, c] = sel;
               const advance = e.key === "0";
+              const retreat = e.key === "Backspace";
               setGrid(g => {
                 const cell = g[r][c];
                 if (cell.given) return g;
@@ -817,6 +855,14 @@ export default function SudokuApp() {
                 if (advance) advanceToNext(r, c, next);
                 return next;
               });
+              if (retreat) {
+                const idx = sel[0] * 9 + sel[1];
+                if (idx > 0) {
+                  const pr = Math.floor((idx - 1) / 9), pc = (idx - 1) % 9;
+                  setSelected([pr, pc]);
+                  selectedRef.current = [pr, pc];
+                }
+              }
             }
           }}
         />
@@ -834,6 +880,27 @@ export default function SudokuApp() {
           <button onClick={handleNeuesSpiel} style={btn(RED,"rgba(200,100,100,0.1)")}
             onMouseEnter={e=>e.currentTarget.style.background=`${RED}28`}
             onMouseLeave={e=>e.currentTarget.style.background="rgba(200,100,100,0.1)"}>⊕ Neues Spiel</button>
+        </div>
+      )}
+      {phase === "input" && (
+        <div style={{ width:"min(92vw,430px)", marginTop:"6px", display:"flex", gap:"6px" }}>
+          <input
+            type="text" inputMode="numeric" placeholder="81-stellige Ziffernfolge einfügen…"
+            onClick={e => e.stopPropagation()}
+            onPaste={handlePaste}
+            onChange={e => {
+              const text = e.target.value.trim();
+              if (/^[0-9]{81}$/.test(text)) {
+                handlePaste({ preventDefault: ()=>{}, clipboardData: { getData: () => text } });
+                e.target.value = "";
+              }
+            }}
+            style={{
+              flex: 1, background: `${LILAC}10`, border: `1px solid ${LILAC}44`,
+              color: `${LILAC}cc`, borderRadius: "6px", padding: "7px 10px",
+              fontSize: "0.7rem", fontFamily: "monospace", outline: "none",
+            }}
+          />
         </div>
       )}
 
