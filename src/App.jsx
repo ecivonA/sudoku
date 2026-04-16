@@ -428,7 +428,7 @@ export default function SudokuApp() {
     }
 
     // ── spielphase: klick auf belegtes Feld ──
-    if (phase === "solve" && !candidateMode && cell.value) {
+    if (phase === "solve" && cell.value) {
       if (selected && selected[0] === r && selected[1] === c) {
         // zweiter Klick auf dasselbe Feld → Rot-Modus
         setSelected(null);
@@ -711,7 +711,7 @@ export default function SudokuApp() {
           const hnBlocked  = highlightNum && !selected && cell.value === highlightNum;
           // In rot-modus: if candidateMode, treat a cell as "conflict" (blocked) also when
           // highlightNum was manually excluded from its candidates
-          const hnExcluded = highlightNum && !selected && candidateMode && !cell.value &&
+          const hnExcluded = highlightNum && !selected && !cell.value &&
             cell.manualExcluded.has(highlightNum);
           const hnConflict = highlightNum && !selected && !hnBlocked && !hnExcluded && (() => {
             const peers = getPeers(r, c);
