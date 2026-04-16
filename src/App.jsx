@@ -123,17 +123,18 @@ function cloneGrid(grid) {
   })));
 }
 
-// compute hint level: 0=none, 1=singles exist, 2=only pairs
+// compute hint level: 0=none, 1=singles exist, 2=only pairs; also dead cells (0 candidates)
 function computeHintCells(grid) {
-  const singles = new Set(), pairs = new Set();
+  const singles = new Set(), pairs = new Set(), dead = new Set();
   for (let r = 0; r < 9; r++)
     for (let c = 0; c < 9; c++) {
       if (grid[r][c].value) continue;
       const sz = grid[r][c].candidates.size;
-      if (sz === 1) singles.add(`${r},${c}`);
+      if (sz === 0) dead.add(`${r},${c}`);
+      else if (sz === 1) singles.add(`${r},${c}`);
       else if (sz === 2) pairs.add(`${r},${c}`);
     }
-  return { singles, pairs, hasSingles: singles.size > 0 };
+  return { singles, pairs, dead, hasSingles: singles.size > 0 };
 }
 
 // ── colours ───────────────────────────────────────────────────────────────────
@@ -394,6 +395,18 @@ export default function SudokuApp() {
     // ── rot-modus aktiv: klick auf freies Feld → Zahl eintragen ──
     if (highlightNum && !selected) {
       if (!cell.given && !cell.value) {
+        // Kandidaten-Modus: Zahl aus Kandidaten-Liste streichen/wiederherstellen
+        if (candidateMode) {
+          if (!cell.candidates.has(highlightNum) && !cell.manualExcluded.has(highlightNum)) return;
+          const next = cloneGrid(grid);
+          const excl = next[r][c].manualExcluded;
+          if (excl.has(highlightNum)) excl.delete(highlightNum);
+          else { if (cell.candidates.size <= 1 && cell.candidates.has(highlightNum)) return; excl.add(highlightNum); }
+          const recomp = recomputeCandidates(next);
+          commit(recomp, grid);
+          return;
+        }
+        // Normal: Zahl direkt eintragen
         const next = cloneGrid(grid);
         next[r][c].value = highlightNum;
         next[r][c].manualExcluded = new Set();
@@ -593,7 +606,7 @@ export default function SudokuApp() {
     return sv && grid[r][c].value === sv && !(r === selected[0] && c === selected[1]);
   };
 
-  const { singles, pairs, hasSingles } = computeHintCells(grid);
+  const { singles, pairs, dead, hasSingles } = computeHintCells(grid);
   const anchorCell = bookmarks.length > 0 ? bookmarks[bookmarks.length-1].anchorCell : null;
   const hasBM      = bookmarks.length > 0;
   const isComplete = phase === "solve" && grid.every(row => row.every(c => c.value)) && errors.size === 0;
@@ -692,10 +705,15 @@ export default function SudokuApp() {
           // hint highlighting
           const isSingle = showHints && phase === "solve" && !cell.value && singles.has(key);
           const isPair   = showHints && phase === "solve" && !cell.value && !hasSingles && pairs.has(key);
+          const isDead   = showHints && phase === "solve" && !cell.value && dead.has(key);
 
           // highlightNum mode (no cursor active)
           const hnBlocked  = highlightNum && !selected && cell.value === highlightNum;
-          const hnConflict = highlightNum && !selected && !hnBlocked && (() => {
+          // In rot-modus: if candidateMode, treat a cell as "conflict" (blocked) also when
+          // highlightNum was manually excluded from its candidates
+          const hnExcluded = highlightNum && !selected && candidateMode && !cell.value &&
+            cell.manualExcluded.has(highlightNum);
+          const hnConflict = highlightNum && !selected && !hnBlocked && !hnExcluded && (() => {
             const peers = getPeers(r, c);
             for (const p of peers) {
               const [pr, pc] = p.split(",").map(Number);
@@ -703,7 +721,7 @@ export default function SudokuApp() {
             }
             return false;
           })();
-          const hnFree = highlightNum && !selected && !cell.value && !hnConflict;
+          const hnFree = highlightNum && !selected && !cell.value && !hnConflict && !hnExcluded;
 
           let bg = MID;
           let fg = phase === "input" ? (cell.value ? LILAC : `${LILAC}22`) : (cell.given ? LILAC : BLUE);
@@ -716,6 +734,8 @@ export default function SudokuApp() {
             candFg = `${DARK}cc`; candExclFg = `${DARK}44`;
           } else if (hnBlocked) {
             bg = "#2a4a2a"; fg = GREEN;  // has the number → green
+          } else if (hnExcluded) {
+            bg = "#3a2020"; fg = `${RED}88`;  // manually excluded → same as conflict
           } else if (hnConflict) {
             bg = "#3a2020"; fg = `${RED}88`;  // blocked by peer → dark red
           } else if (hnFree) {
@@ -733,8 +753,9 @@ export default function SudokuApp() {
 
           // hint ring via box-shadow
           let shadow = "none";
-          if (isSingle) shadow = `inset 0 0 0 2px ${GREEN}, inset 0 0 6px ${GREEN}55`;
-          else if (isPair) shadow = `inset 0 0 0 2px ${BLUE}99`;
+          if (isDead)        shadow = `inset 0 0 0 2px ${RED}, inset 0 0 6px ${RED}55`;
+          else if (isSingle) shadow = `inset 0 0 0 2px ${GREEN}, inset 0 0 6px ${GREEN}55`;
+          else if (isPair)   shadow = `inset 0 0 0 2px ${BLUE}99`;
 
           return (
             <div key={key} onClick={() => handleCellClick(r, c)} style={{
