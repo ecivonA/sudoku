@@ -123,7 +123,7 @@ function cloneGrid(grid) {
   })));
 }
 
-// compute hint level: 0=none, 1=singles exist, 2=only pairs; also dead cells (0 candidates)
+// compute hint level: 0=none, 1=singles exist, 2=only pairs
 function computeHintCells(grid) {
   const singles = new Set(), pairs = new Set(), dead = new Set();
   for (let r = 0; r < 9; r++)
@@ -277,7 +277,7 @@ export default function SudokuApp() {
       const digit = parseInt(e.key);
       if (digit >= 1 && digit <= 9) {
         if (!selectedRef.current) {
-          // no cursor → highlight mode
+          // no cursor → rot-modus: switch to that number (or off if same)
           setHighlightNum(n => n === digit ? null : digit);
           return;
         }
@@ -395,18 +395,6 @@ export default function SudokuApp() {
     // ── rot-modus aktiv: klick auf freies Feld → Zahl eintragen ──
     if (highlightNum && !selected) {
       if (!cell.given && !cell.value) {
-        // Kandidaten-Modus: Zahl aus Kandidaten-Liste streichen/wiederherstellen
-        if (candidateMode) {
-          if (!cell.candidates.has(highlightNum) && !cell.manualExcluded.has(highlightNum)) return;
-          const next = cloneGrid(grid);
-          const excl = next[r][c].manualExcluded;
-          if (excl.has(highlightNum)) excl.delete(highlightNum);
-          else { if (cell.candidates.size <= 1 && cell.candidates.has(highlightNum)) return; excl.add(highlightNum); }
-          const recomp = recomputeCandidates(next);
-          commit(recomp, grid);
-          return;
-        }
-        // Normal: Zahl direkt eintragen
         const next = cloneGrid(grid);
         next[r][c].value = highlightNum;
         next[r][c].manualExcluded = new Set();
@@ -428,7 +416,7 @@ export default function SudokuApp() {
     }
 
     // ── spielphase: klick auf belegtes Feld ──
-    if (phase === "solve" && cell.value) {
+    if (phase === "solve" && !candidateMode && cell.value) {
       if (selected && selected[0] === r && selected[1] === c) {
         // zweiter Klick auf dasselbe Feld → Rot-Modus
         setSelected(null);
@@ -702,18 +690,14 @@ export default function SudokuApp() {
           const err   = errors.has(key);
           const isAnc = anchorCell === key;
 
-          // hint highlighting
-          const isSingle = showHints && phase === "solve" && !cell.value && singles.has(key);
-          const isPair   = showHints && phase === "solve" && !cell.value && !hasSingles && pairs.has(key);
-          const isDead   = showHints && phase === "solve" && !cell.value && dead.has(key);
+          // hint highlighting — suppressed while rot-modus active
+          const isSingle = showHints && !highlightNum && phase === "solve" && !cell.value && singles.has(key);
+          const isPair   = showHints && !highlightNum && phase === "solve" && !cell.value && !hasSingles && pairs.has(key);
+          const isDead   = showHints && !highlightNum && phase === "solve" && !cell.value && dead.has(key);
 
           // highlightNum mode (no cursor active)
           const hnBlocked  = highlightNum && !selected && cell.value === highlightNum;
-          // In rot-modus: if candidateMode, treat a cell as "conflict" (blocked) also when
-          // highlightNum was manually excluded from its candidates
-          const hnExcluded = highlightNum && !selected && !cell.value &&
-            cell.manualExcluded.has(highlightNum);
-          const hnConflict = highlightNum && !selected && !hnBlocked && !hnExcluded && (() => {
+          const hnConflict = highlightNum && !selected && !hnBlocked && (() => {
             const peers = getPeers(r, c);
             for (const p of peers) {
               const [pr, pc] = p.split(",").map(Number);
@@ -721,7 +705,7 @@ export default function SudokuApp() {
             }
             return false;
           })();
-          const hnFree = highlightNum && !selected && !cell.value && !hnConflict && !hnExcluded;
+          const hnFree = highlightNum && !selected && !cell.value && !hnConflict;
 
           let bg = MID;
           let fg = phase === "input" ? (cell.value ? LILAC : `${LILAC}22`) : (cell.given ? LILAC : BLUE);
@@ -734,8 +718,6 @@ export default function SudokuApp() {
             candFg = `${DARK}cc`; candExclFg = `${DARK}44`;
           } else if (hnBlocked) {
             bg = "#2a4a2a"; fg = GREEN;  // has the number → green
-          } else if (hnExcluded) {
-            bg = "#3a2020"; fg = `${RED}88`;  // manually excluded → same as conflict
           } else if (hnConflict) {
             bg = "#3a2020"; fg = `${RED}88`;  // blocked by peer → dark red
           } else if (hnFree) {
@@ -807,10 +789,13 @@ export default function SudokuApp() {
       </div>
 
       {/* ── Number pad ── */}
-      <div style={{
-        display: "grid", gridTemplateColumns: "repeat(9,1fr)",
-        gap: "4px", marginTop: "10px", width: "min(92vw,430px)",
-      }}>
+      <div
+        style={{
+          display: "grid", gridTemplateColumns: "repeat(9,1fr)",
+          gap: "4px", marginTop: "10px", width: "min(92vw,430px)",
+        }}
+        onMouseLeave={() => {}}
+      >
         {[1,2,3,4,5,6,7,8,9].map(n => {
           const ph = padHighlight(n);
           const full = digitCount[n] >= 9;
@@ -818,20 +803,44 @@ export default function SudokuApp() {
           let padColor = phase==="input" ? LILAC : GOLD;
           if (full) { padBg = "transparent"; padColor = `${MID}99`; }
           else if (highlightNum && !selected) {
-            // rot-modus: alle ausgegraut außer aktiver Zahl
             if (highlightNum === n) { padBg = `${RED}25`; padColor = RED; }
-            else { padBg = "transparent"; padColor = `${GOLD}22`; }
+            else { padBg = "transparent"; padColor = `${GOLD}44`; }
           } else if (ph==="remove")     { padBg=`${BLUE}18`;   padColor=BLUE; }
           else if (ph==="restore")    { padBg=`${ORANGE}20`; padColor=ORANGE; }
           else if (ph==="impossible") { padBg="transparent"; padColor=`${GOLD}22`; }
+
+          const handlePadInteract = () => {
+            if (highlightNum && !selected) {
+              // rot-modus: Zahl wechseln (nicht ausschalten)
+              if (!full) setHighlightNum(n);
+            } else {
+              if (!full) handleInput(n);
+            }
+          };
+
           return (
-            <button key={n} onClick={() => !full && handleInput(n)} style={{
-              aspectRatio: "1", borderRadius: "6px", border: `1px solid ${padColor}55`,
-              background: padBg, color: padColor,
-              fontSize: "clamp(0.9rem,3vw,1.3rem)", fontWeight: "bold",
-              cursor: full || ph==="impossible" ? "default" : "pointer",
-              fontFamily: "Georgia,serif", transition: "all 0.12s",
-            }}>{n}</button>
+            <button
+              key={n}
+              onClick={handlePadInteract}
+              onMouseEnter={() => { if (highlightNum && !selected && !full) setHighlightNum(n); }}
+              onTouchMove={e => {
+                const touch = e.touches[0];
+                const el = document.elementFromPoint(touch.clientX, touch.clientY);
+                if (el && el.dataset.padnum) {
+                  const num = parseInt(el.dataset.padnum);
+                  if (num >= 1 && num <= 9 && digitCount[num] < 9) setHighlightNum(num);
+                }
+              }}
+              data-padnum={n}
+              style={{
+                aspectRatio: "1", borderRadius: "6px", border: `1px solid ${padColor}55`,
+                background: padBg, color: padColor,
+                fontSize: "clamp(0.9rem,3vw,1.3rem)", fontWeight: "bold",
+                cursor: full || ph==="impossible" ? "default" : "pointer",
+                fontFamily: "Georgia,serif", transition: "background 0.08s, color 0.08s",
+                touchAction: "none",
+              }}
+            >{n}</button>
           );
         })}
       </div>
@@ -950,7 +959,7 @@ export default function SudokuApp() {
             onMouseEnter={e=>{if(hasBM)e.currentTarget.style.background=`${RED}28`;}}
             onMouseLeave={e=>e.currentTarget.style.background=restoreConfirm?`${RED}22`:`${ORANGE}12`}>
             {restoreConfirm?"⚠ Sicher?":`⏮ Zurück${bookmarks.length>1?` (${bookmarks.length})`:""}`}</button>
-          <button onClick={()=>setShowHints(h=>!h)}
+          <button onClick={()=>{ setShowHints(h=>!h); setHighlightNum(null); }}
             style={btn(showHints?GREEN:GOLD, showHints?`${GREEN}25`:`${GOLD}10`)}
             onMouseEnter={e=>e.currentTarget.style.background=showHints?`${GREEN}35`:`${GOLD}25`}
             onMouseLeave={e=>e.currentTarget.style.background=showHints?`${GREEN}25`:`${GOLD}10`}>
