@@ -429,7 +429,7 @@ export default function SudokuApp() {
     }
 
     // ── spielphase: klick auf belegtes Feld ──
-    if (phase === "solve" && !candidateMode && cell.value) {
+    if (phase === "solve" && cell.value) {
       if (selected && selected[0] === r && selected[1] === c) {
         // zweiter Klick auf dasselbe Feld → Rot-Modus
         setSelected(null);
