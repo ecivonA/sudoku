@@ -188,6 +188,7 @@ export default function SudokuApp() {
   const containerRef = useRef(null);
   const hiddenInputRef = useRef(null);
   const selectedRef = useRef(null);
+  const isPadMouseDown = useRef(false);
 
   // keep selectedRef in sync
   useEffect(() => { selectedRef.current = selected; }, [selected]);
@@ -392,9 +393,21 @@ export default function SudokuApp() {
   const handleCellClick = (r, c) => {
     const cell = grid[r][c];
 
-    // ── rot-modus aktiv: klick auf freies Feld → Zahl eintragen ──
+    // ── rot-modus aktiv: klick auf freies Feld ──
     if (highlightNum && !selected) {
       if (!cell.given && !cell.value) {
+        if (candidateMode) {
+          // Kandidaten-Modus: Kandidat streichen / wiederherstellen
+          const num = highlightNum;
+          if (!cell.candidates.has(num) && !cell.manualExcluded.has(num)) return;
+          const next = cloneGrid(grid);
+          const excl = next[r][c].manualExcluded;
+          if (excl.has(num)) excl.delete(num);
+          else { if (cell.candidates.size <= 1) return; excl.add(num); }
+          commit(recomputeCandidates(next), grid);
+          return;
+        }
+        // Normalmodus: Zahl eintragen
         const next = cloneGrid(grid);
         next[r][c].value = highlightNum;
         next[r][c].manualExcluded = new Set();
@@ -706,6 +719,10 @@ export default function SudokuApp() {
             return false;
           })();
           const hnFree = highlightNum && !selected && !cell.value && !hnConflict;
+          // in kandidaten-modus: freie Felder, in denen highlightNum kein aktiver Kandidat (mehr) ist
+          // (egal ob durch Logik oder manuell ausgeschlossen — beides zählt als "raus")
+          const hnNoCandidate = highlightNum && !selected && candidateMode && !cell.value && !cell.given
+            && !cell.candidates.has(highlightNum);
 
           let bg = MID;
           let fg = phase === "input" ? (cell.value ? LILAC : `${LILAC}22`) : (cell.given ? LILAC : BLUE);
@@ -720,6 +737,8 @@ export default function SudokuApp() {
             bg = "#2a4a2a"; fg = GREEN;  // has the number → green
           } else if (hnConflict) {
             bg = "#3a2020"; fg = `${RED}88`;  // blocked by peer → dark red
+          } else if (hnNoCandidate) {
+            bg = "#3a1818"; fg = `${RED}55`;  // nicht mehr als kandidat → dunkelrot
           } else if (hnFree) {
             bg = "#253040"; fg = `${BLUE}cc`;  // possible → highlighted
           } else if (smv) {
@@ -794,7 +813,9 @@ export default function SudokuApp() {
           display: "grid", gridTemplateColumns: "repeat(9,1fr)",
           gap: "4px", marginTop: "10px", width: "min(92vw,430px)",
         }}
-        onMouseLeave={() => {}}
+        onMouseDown={() => { isPadMouseDown.current = true; }}
+        onMouseUp={() => { isPadMouseDown.current = false; }}
+        onMouseLeave={() => { isPadMouseDown.current = false; }}
       >
         {[1,2,3,4,5,6,7,8,9].map(n => {
           const ph = padHighlight(n);
@@ -811,7 +832,7 @@ export default function SudokuApp() {
 
           const handlePadInteract = () => {
             if (highlightNum && !selected) {
-              // rot-modus: Zahl wechseln (nicht ausschalten)
+              // rot-modus: Zahl wechseln per Klick
               if (!full) setHighlightNum(n);
             } else {
               if (!full) handleInput(n);
@@ -822,7 +843,10 @@ export default function SudokuApp() {
             <button
               key={n}
               onClick={handlePadInteract}
-              onMouseEnter={() => { if (highlightNum && !selected && !full) setHighlightNum(n); }}
+              onMouseMove={() => {
+                // Wischen nur bei gedrückter Maus (Drag)
+                if (isPadMouseDown.current && highlightNum && !selected && !full) setHighlightNum(n);
+              }}
               onTouchMove={e => {
                 const touch = e.touches[0];
                 const el = document.elementFromPoint(touch.clientX, touch.clientY);
