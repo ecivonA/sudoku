@@ -719,9 +719,8 @@ export default function SudokuApp() {
             return false;
           })();
           const hnFree = highlightNum && !selected && !cell.value && !hnConflict;
-          // in kandidaten-modus: freie Felder, in denen highlightNum kein aktiver Kandidat (mehr) ist
-          // (egal ob durch Logik oder manuell ausgeschlossen — beides zählt als "raus")
-          const hnNoCandidate = highlightNum && !selected && candidateMode && !cell.value && !cell.given
+          // freie Felder, in denen highlightNum kein aktiver Kandidat (mehr) ist → rot
+          const hnNoCandidate = highlightNum && !selected && !cell.value && !cell.given
             && !cell.candidates.has(highlightNum);
 
           let bg = MID;
