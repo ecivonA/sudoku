@@ -380,48 +380,56 @@ export default function SudokuApp() {
       setScanStatus("⏳ Lade OCR-Engine…");
       const Tesseract = await loadTesseract();
 
-      // 4. Recognise
-      setScanStatus("⏳ Erkenne Ziffern…");
+      // 4. Recognise row by row with PSM 7 (single text line) — much more reliable
+      //    than PSM 11 for sparse isolated digits
       const worker = await Tesseract.createWorker("eng", 1);
       await worker.setParameters({
         tessedit_char_whitelist: "123456789",
-        tessedit_pageseg_mode: "11", // SPARSE_TEXT — best for isolated digit blobs
+        tessedit_pageseg_mode: "7", // SINGLE_LINE
       });
-      const { data } = await worker.recognize(gridCanvas);
-      await worker.terminate();
 
-      // 5. Map recognised chars to 9×9 grid via bounding-box centre.
-      // Use data.symbols (finest granularity) first, then words as fallback.
       const grid = Array(81).fill(0);
-      const cellSize = 900 / 9;
+      const cellW = 900 / 9; // 100px per cell
+      let totalWords = 0, totalSymbols = 0, allWordTexts = [];
 
-      const placeChar = (ch, bbox) => {
-        if (!ch || !/^[1-9]$/.test(ch.trim())) return;
-        const cx = (bbox.x0 + bbox.x1) / 2;
-        const cy = (bbox.y0 + bbox.y1) / 2;
-        const col = Math.min(8, Math.max(0, Math.floor(cx / cellSize)));
-        const row = Math.min(8, Math.max(0, Math.floor(cy / cellSize)));
-        grid[row * 9 + col] = parseInt(ch.trim());
-      };
+      for (let row = 0; row < 9; row++) {
+        setScanStatus(`⏳ Zeile ${row + 1} von 9…`);
+        // extract one row strip (with small vertical padding)
+        const y0 = Math.max(0, row * 100 - 8);
+        const y1 = Math.min(900, row * 100 + 108);
+        const rowCanvas = document.createElement("canvas");
+        rowCanvas.width = 900; rowCanvas.height = y1 - y0;
+        const rCtx = rowCanvas.getContext("2d");
+        rCtx.fillStyle = "white";
+        rCtx.fillRect(0, 0, 900, y1 - y0);
+        rCtx.drawImage(gridCanvas, 0, y0, 900, y1 - y0, 0, 0, 900, y1 - y0);
 
-      // symbols give the finest per-character bboxes
-      for (const sym of (data.symbols || [])) placeChar(sym.text, sym.bbox);
-      // words as fallback — drill into word.symbols if available
-      for (const word of (data.words || [])) {
-        if (word.symbols?.length > 0) {
-          for (const sym of word.symbols) placeChar(sym.text, sym.bbox);
-        } else {
-          const ch = word.text?.trim().replace(/[^1-9]/g, "");
-          if (ch?.length === 1) placeChar(ch, word.bbox);
+        const { data: rd } = await worker.recognize(rowCanvas);
+        totalWords += rd.words?.length ?? 0;
+        totalSymbols += rd.symbols?.length ?? 0;
+
+        const place = (ch, bbox) => {
+          if (!ch || !/^[1-9]$/.test(ch.trim())) return;
+          const cx = (bbox.x0 + bbox.x1) / 2;
+          const col = Math.min(8, Math.max(0, Math.floor(cx / cellW)));
+          grid[row * 9 + col] = parseInt(ch.trim());
+        };
+
+        for (const sym of (rd.symbols || [])) place(sym.text, sym.bbox);
+        for (const word of (rd.words || [])) {
+          allWordTexts.push(`R${row}:"${word.text?.trim()}"@${word.bbox?.x0}`);
+          if (word.symbols?.length > 0) for (const s of word.symbols) place(s.text, s.bbox);
+          else { const ch = word.text?.trim().replace(/[^1-9]/g,""); if(ch?.length===1) place(ch, word.bbox); }
         }
       }
 
-      // debug: capture what Tesseract actually returned
+      await worker.terminate();
+
+      // debug info
       setDebugInfo({
-        text: data.text?.trim() || "(leer)",
-        words: data.words?.length ?? 0,
-        symbols: data.symbols?.length ?? 0,
-        wordTexts: (data.words || []).map(w => `"${w.text?.trim()}" @(${w.bbox?.x0},${w.bbox?.y0})`).join(", "),
+        text: grid.map((v,i) => v || (i%9===8?"\n":".")).join(""),
+        words: totalWords, symbols: totalSymbols,
+        wordTexts: allWordTexts.join(", ") || "(keine)",
       });
 
       const result = grid.join("");
