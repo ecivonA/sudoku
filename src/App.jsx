@@ -194,12 +194,13 @@ function findGridBounds(canvas) {
     for (let x = 0; x < width; x++) {
       const i = (y * width + x) * 4;
       const gray = 0.299 * px[i] + 0.587 * px[i+1] + 0.114 * px[i+2];
-      if (gray < 140) { rowH[y]++; colH[x]++; }
+      if (gray < 200) { rowH[y]++; colH[x]++; }  // looser threshold for light colors
     }
   for (let y = 0; y < height; y++) rowH[y] /= width;
   for (let x = 0; x < width; x++) colH[x] /= height;
 
-  const thresh = 0.04;
+  // very low threshold — enough to catch thin grid lines (~0.3%)
+  const thresh = 0.003;
   let top = 0, bottom = height - 1, left = 0, right = width - 1;
   for (let y = 0; y < height; y++) if (rowH[y] > thresh) { top = y; break; }
   for (let y = height - 1; y >= 0; y--) if (rowH[y] > thresh) { bottom = y; break; }
@@ -207,9 +208,9 @@ function findGridBounds(canvas) {
   for (let x = width - 1; x >= 0; x--) if (colH[x] > thresh) { right = x; break; }
 
   const w = right - left, h = bottom - top;
-  // fall back to centred square if result looks wrong
-  if (w < 50 || h < 50 || w / h > 1.6 || h / w > 1.6) {
-    const size = Math.min(width, height) * 0.9;
+  // fall back to 88% centred square if detection looks wrong
+  if (w < width * 0.3 || h < height * 0.3 || w / h > 1.6 || h / w > 1.6) {
+    const size = Math.min(width, height) * 0.88;
     return { x: (width - size) / 2, y: (height - size) / 2, w: size, h: size };
   }
   return { x: left, y: top, w, h };
@@ -320,14 +321,33 @@ export default function SudokuApp() {
       src.width = img.naturalWidth; src.height = img.naturalHeight;
       src.getContext("2d").drawImage(img, 0, 0);
 
-      // 2. Find grid bounds & normalise to 450×450 with contrast boost
+      // 2. Find grid bounds & normalise to 450×450 with adaptive binarisation
       const bounds = findGridBounds(src);
       const gridCanvas = document.createElement("canvas");
       gridCanvas.width = 450; gridCanvas.height = 450;
       const gCtx = gridCanvas.getContext("2d");
-      gCtx.filter = "grayscale(1) contrast(2.5) brightness(1.1)";
+
+      // Draw cropped grid
       gCtx.drawImage(src, bounds.x, bounds.y, bounds.w, bounds.h, 0, 0, 450, 450);
-      gCtx.filter = "none";
+
+      // Adaptive threshold: find background brightness from 90th percentile,
+      // then binarise — works for any color scheme (dark, golden, blue numbers etc.)
+      const imgData = gCtx.getImageData(0, 0, 450, 450);
+      const d = imgData.data;
+      // Convert to grayscale in-place
+      const grays = new Uint8Array(450 * 450);
+      for (let i = 0; i < grays.length; i++) {
+        grays[i] = Math.round(0.299 * d[i*4] + 0.587 * d[i*4+1] + 0.114 * d[i*4+2]);
+      }
+      // 90th-percentile brightness ≈ background
+      const sorted = grays.slice().sort();
+      const bgBright = sorted[Math.floor(sorted.length * 0.9)];
+      const cutoff = bgBright * 0.80; // pixels darker than 80% of bg → black
+      for (let i = 0; i < grays.length; i++) {
+        const v = grays[i] < cutoff ? 0 : 255;
+        d[i*4] = d[i*4+1] = d[i*4+2] = v; d[i*4+3] = 255;
+      }
+      gCtx.putImageData(imgData, 0, 0);
 
       // 3. Load Tesseract (cached after first call)
       setScanStatus("⏳ Lade OCR-Engine…");
