@@ -288,7 +288,7 @@ export default function SudokuApp() {
     for (let i = 0; i < 81; i++) {
       const val = parseInt(text[i]);
       const r = Math.floor(i/9), c = i%9;
-      if (val >= 1 && val <= 9) { next[r][c].value = val; next[r][c].given = true; }
+      if (val >= 1 && val <= 9) { next[r][c].value = val; }
     }
     const computed = recomputeCandidates(next);
     setGrid(computed); setPhase("input"); setHistory([]); setBookmarks([]);
