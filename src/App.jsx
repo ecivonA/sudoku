@@ -233,8 +233,6 @@ export default function SudokuApp() {
   const [restoreConfirm, setRestoreConfirm] = useState(false);
   const [highlightNum,   setHighlightNum]   = useState(null);
   const [scanStatus,     setScanStatus]     = useState(null);
-  const [debugImg,       setDebugImg]       = useState(null);
-  const [debugInfo,      setDebugInfo]      = useState(null); // raw Tesseract result info
   const containerRef = useRef(null);
   const hiddenInputRef = useRef(null);
   const selectedRef = useRef(null);
@@ -346,42 +344,29 @@ export default function SudokuApp() {
         const v = grays[i] < cutoff ? 0 : 255;
         d[i*4] = d[i*4+1] = d[i*4+2] = v; d[i*4+3] = 255;
       }
-
-      // Remove grid lines: rows/cols with a dark-pixel run longer than 400px are lines, not digits
-      const LINE_RUN = 400;
-      const isHLine = new Uint8Array(900);
-      const isVLine = new Uint8Array(900);
-      for (let y = 0; y < 900; y++) {
-        let run = 0;
-        for (let x = 0; x < 900; x++) {
-          run = d[(y * 900 + x) * 4] === 0 ? run + 1 : 0;
-          if (run > LINE_RUN) { isHLine[y] = 1; break; }
-        }
-      }
-      for (let x = 0; x < 900; x++) {
-        let run = 0;
-        for (let y = 0; y < 900; y++) {
-          run = d[(y * 900 + x) * 4] === 0 ? run + 1 : 0;
-          if (run > LINE_RUN) { isVLine[x] = 1; break; }
-        }
-      }
-      for (let y = 0; y < 900; y++) for (let x = 0; x < 900; x++) {
-        if (isHLine[y] || isVLine[x]) {
-          const i = (y * 900 + x) * 4;
-          d[i] = d[i+1] = d[i+2] = 255;
-        }
-      }
       gCtx.putImageData(imgData, 0, 0);
 
-      // show debug preview of what Tesseract will see
-      setDebugImg(gridCanvas.toDataURL("image/png"));
+      // Build a clean canvas by copying only the inner 70% of each cell.
+      // Grid lines live in the border area and are simply never copied —
+      // no run-length heuristic needed, works for any line thickness or style.
+      const BORDER = 15; // px to skip at each edge of every 100px cell
+      const cleanCanvas = document.createElement("canvas");
+      cleanCanvas.width = 900; cleanCanvas.height = 900;
+      const cleanCtx = cleanCanvas.getContext("2d");
+      cleanCtx.fillStyle = "white";
+      cleanCtx.fillRect(0, 0, 900, 900);
+      for (let r = 0; r < 9; r++)
+        for (let c = 0; c < 9; c++) {
+          const x = c * 100 + BORDER, y = r * 100 + BORDER;
+          const w = 100 - 2 * BORDER, h = 100 - 2 * BORDER;
+          cleanCtx.drawImage(gridCanvas, x, y, w, h, x, y, w, h);
+        }
 
       // 3. Load Tesseract (cached after first call)
       setScanStatus("⏳ Lade OCR-Engine…");
       const Tesseract = await loadTesseract();
 
-      // 4. Recognise row by row with PSM 7 (single text line) — much more reliable
-      //    than PSM 11 for sparse isolated digits
+      // 4. Recognise row by row with PSM 7 (single text line)
       const worker = await Tesseract.createWorker("eng", 1);
       await worker.setParameters({
         tessedit_char_whitelist: "123456789",
@@ -394,15 +379,14 @@ export default function SudokuApp() {
 
       for (let row = 0; row < 9; row++) {
         setScanStatus(`⏳ Zeile ${row + 1} von 9…`);
-        // extract one row strip (with small vertical padding)
-        const y0 = Math.max(0, row * 100 - 8);
-        const y1 = Math.min(900, row * 100 + 108);
+        // extract one row strip from the clean canvas (cell centres only)
+        const y0 = row * 100, y1 = row * 100 + 100;
         const rowCanvas = document.createElement("canvas");
-        rowCanvas.width = 900; rowCanvas.height = y1 - y0;
+        rowCanvas.width = 900; rowCanvas.height = 100;
         const rCtx = rowCanvas.getContext("2d");
         rCtx.fillStyle = "white";
-        rCtx.fillRect(0, 0, 900, y1 - y0);
-        rCtx.drawImage(gridCanvas, 0, y0, 900, y1 - y0, 0, 0, 900, y1 - y0);
+        rCtx.fillRect(0, 0, 900, 100);
+        rCtx.drawImage(cleanCanvas, 0, y0, 900, 100, 0, 0, 900, 100);
 
         const { data: rd } = await worker.recognize(rowCanvas);
         totalWords += rd.words?.length ?? 0;
@@ -424,13 +408,6 @@ export default function SudokuApp() {
       }
 
       await worker.terminate();
-
-      // debug info
-      setDebugInfo({
-        text: grid.map((v,i) => v || (i%9===8?"\n":".")).join(""),
-        words: totalWords, symbols: totalSymbols,
-        wordTexts: allWordTexts.join(", ") || "(keine)",
-      });
 
       const result = grid.join("");
       const filled = grid.filter(v => v > 0).length;
@@ -1181,35 +1158,6 @@ export default function SudokuApp() {
           color: RED, fontSize: "0.68rem", textAlign: "center", letterSpacing: "0.04em",
         }}>
           ⚠ {scanStatus}
-        </div>
-      )}
-      {/* debug: preprocessed image sent to Tesseract */}
-      {phase === "input" && debugImg && (
-        <div style={{ width: "min(92vw,430px)", marginTop: "6px" }}>
-          <div style={{ color: `${GOLD}88`, fontSize: "0.6rem", marginBottom: "3px", letterSpacing: "0.06em" }}>
-            Vorverarbeitetes Bild (was Tesseract sieht):
-          </div>
-          <img
-            src={debugImg}
-            alt="debug"
-            style={{ width: "100%", border: `1px solid ${GOLD}44`, borderRadius: "4px", display: "block" }}
-          />
-          {debugInfo && (
-            <div style={{
-              marginTop: "6px", background: `${DARK}cc`, border: `1px solid ${GOLD}33`,
-              borderRadius: "4px", padding: "6px 8px",
-              fontSize: "0.58rem", fontFamily: "monospace", color: `${GOLD}cc`,
-              wordBreak: "break-all", lineHeight: 1.6,
-            }}>
-              <div><b>text:</b> {debugInfo.text}</div>
-              <div><b>words:</b> {debugInfo.words} &nbsp; <b>symbols:</b> {debugInfo.symbols}</div>
-              <div><b>word-Texte:</b> {debugInfo.wordTexts || "(keine)"}</div>
-            </div>
-          )}
-          <button
-            onClick={() => { setDebugImg(null); setDebugInfo(null); }}
-            style={{ ...btn(`${GOLD}88`, "transparent"), marginTop: "4px", fontSize: "0.58rem", padding: "3px 8px" }}
-          >✕ Vorschau schließen</button>
         </div>
       )}
 
