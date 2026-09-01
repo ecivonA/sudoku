@@ -232,7 +232,8 @@ export default function SudokuApp() {
   const [resetConfirm,   setResetConfirm]   = useState(false);
   const [restoreConfirm, setRestoreConfirm] = useState(false);
   const [highlightNum,   setHighlightNum]   = useState(null);
-  const [scanStatus,     setScanStatus]     = useState(null); // null | "scanning" | "error" | string
+  const [scanStatus,     setScanStatus]     = useState(null);
+  const [debugImg,       setDebugImg]       = useState(null); // data URL of preprocessed canvas
   const containerRef = useRef(null);
   const hiddenInputRef = useRef(null);
   const selectedRef = useRef(null);
@@ -370,6 +371,9 @@ export default function SudokuApp() {
         }
       }
       gCtx.putImageData(imgData, 0, 0);
+
+      // show debug preview of what Tesseract will see
+      setDebugImg(gridCanvas.toDataURL("image/png"));
 
       // 3. Load Tesseract (cached after first call)
       setScanStatus("⏳ Lade OCR-Engine…");
@@ -1160,6 +1164,23 @@ export default function SudokuApp() {
           color: RED, fontSize: "0.68rem", textAlign: "center", letterSpacing: "0.04em",
         }}>
           ⚠ {scanStatus}
+        </div>
+      )}
+      {/* debug: preprocessed image sent to Tesseract */}
+      {phase === "input" && debugImg && (
+        <div style={{ width: "min(92vw,430px)", marginTop: "6px" }}>
+          <div style={{ color: `${GOLD}88`, fontSize: "0.6rem", marginBottom: "3px", letterSpacing: "0.06em" }}>
+            Vorverarbeitetes Bild (was Tesseract sieht):
+          </div>
+          <img
+            src={debugImg}
+            alt="debug"
+            style={{ width: "100%", border: `1px solid ${GOLD}44`, borderRadius: "4px", display: "block" }}
+          />
+          <button
+            onClick={() => setDebugImg(null)}
+            style={{ ...btn(`${GOLD}88`, "transparent"), marginTop: "4px", fontSize: "0.58rem", padding: "3px 8px" }}
+          >✕ Vorschau schließen</button>
         </div>
       )}
 
