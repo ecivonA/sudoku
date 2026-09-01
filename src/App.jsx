@@ -330,21 +330,44 @@ export default function SudokuApp() {
       // Draw cropped grid
       gCtx.drawImage(src, bounds.x, bounds.y, bounds.w, bounds.h, 0, 0, 900, 900);
 
-      // Adaptive threshold: find background brightness from 90th percentile,
-      // then binarise — works for any color scheme (dark, golden, blue numbers etc.)
+      // Adaptive threshold
       const imgData = gCtx.getImageData(0, 0, 900, 900);
       const d = imgData.data;
       const grays = new Uint8Array(900 * 900);
       for (let i = 0; i < grays.length; i++) {
         grays[i] = Math.round(0.299 * d[i*4] + 0.587 * d[i*4+1] + 0.114 * d[i*4+2]);
       }
-      // 90th-percentile brightness ≈ background
       const sorted = grays.slice().sort();
       const bgBright = sorted[Math.floor(sorted.length * 0.9)];
       const cutoff = bgBright * 0.80;
       for (let i = 0; i < grays.length; i++) {
         const v = grays[i] < cutoff ? 0 : 255;
         d[i*4] = d[i*4+1] = d[i*4+2] = v; d[i*4+3] = 255;
+      }
+
+      // Remove grid lines: rows/cols with a dark-pixel run longer than 400px are lines, not digits
+      const LINE_RUN = 400;
+      const isHLine = new Uint8Array(900);
+      const isVLine = new Uint8Array(900);
+      for (let y = 0; y < 900; y++) {
+        let run = 0;
+        for (let x = 0; x < 900; x++) {
+          run = d[(y * 900 + x) * 4] === 0 ? run + 1 : 0;
+          if (run > LINE_RUN) { isHLine[y] = 1; break; }
+        }
+      }
+      for (let x = 0; x < 900; x++) {
+        let run = 0;
+        for (let y = 0; y < 900; y++) {
+          run = d[(y * 900 + x) * 4] === 0 ? run + 1 : 0;
+          if (run > LINE_RUN) { isVLine[x] = 1; break; }
+        }
+      }
+      for (let y = 0; y < 900; y++) for (let x = 0; x < 900; x++) {
+        if (isHLine[y] || isVLine[x]) {
+          const i = (y * 900 + x) * 4;
+          d[i] = d[i+1] = d[i+2] = 255;
+        }
       }
       gCtx.putImageData(imgData, 0, 0);
 
@@ -357,16 +380,15 @@ export default function SudokuApp() {
       const worker = await Tesseract.createWorker("eng", 1);
       await worker.setParameters({
         tessedit_char_whitelist: "123456789",
-        tessedit_pageseg_mode: "6", // SINGLE_UNIFORM_BLOCK — better structured output
+        tessedit_pageseg_mode: "11", // SPARSE_TEXT — best for isolated digit blobs
       });
       const { data } = await worker.recognize(gridCanvas);
       await worker.terminate();
 
-      // 5. Map recognised chars to 9×9 grid.
-      // Key insight: Tesseract may group nearby digits into one "word" (e.g. "583").
-      // We therefore drill into word.symbols for individual character bboxes.
+      // 5. Map recognised chars to 9×9 grid via bounding-box centre.
+      // Use data.symbols (finest granularity) first, then words as fallback.
       const grid = Array(81).fill(0);
-      const cellSize = 900 / 9; // 100px per cell
+      const cellSize = 900 / 9;
 
       const placeChar = (ch, bbox) => {
         if (!ch || !/^[1-9]$/.test(ch.trim())) return;
@@ -377,16 +399,17 @@ export default function SudokuApp() {
         grid[row * 9 + col] = parseInt(ch.trim());
       };
 
+      // symbols give the finest per-character bboxes
+      for (const sym of (data.symbols || [])) placeChar(sym.text, sym.bbox);
+      // words as fallback — drill into word.symbols if available
       for (const word of (data.words || [])) {
-        if (word.symbols && word.symbols.length > 0) {
+        if (word.symbols?.length > 0) {
           for (const sym of word.symbols) placeChar(sym.text, sym.bbox);
         } else {
           const ch = word.text?.trim().replace(/[^1-9]/g, "");
           if (ch?.length === 1) placeChar(ch, word.bbox);
         }
       }
-      // also sweep top-level symbols in case words missed something
-      for (const sym of (data.symbols || [])) placeChar(sym.text, sym.bbox);
 
       const result = grid.join("");
       const filled = grid.filter(v => v > 0).length;
