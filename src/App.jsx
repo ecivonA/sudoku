@@ -321,28 +321,27 @@ export default function SudokuApp() {
       src.width = img.naturalWidth; src.height = img.naturalHeight;
       src.getContext("2d").drawImage(img, 0, 0);
 
-      // 2. Find grid bounds & normalise to 450×450 with adaptive binarisation
+      // 2. Find grid bounds & normalise to 900×900 with adaptive binarisation
       const bounds = findGridBounds(src);
       const gridCanvas = document.createElement("canvas");
-      gridCanvas.width = 450; gridCanvas.height = 450;
+      gridCanvas.width = 900; gridCanvas.height = 900;
       const gCtx = gridCanvas.getContext("2d");
 
       // Draw cropped grid
-      gCtx.drawImage(src, bounds.x, bounds.y, bounds.w, bounds.h, 0, 0, 450, 450);
+      gCtx.drawImage(src, bounds.x, bounds.y, bounds.w, bounds.h, 0, 0, 900, 900);
 
       // Adaptive threshold: find background brightness from 90th percentile,
       // then binarise — works for any color scheme (dark, golden, blue numbers etc.)
-      const imgData = gCtx.getImageData(0, 0, 450, 450);
+      const imgData = gCtx.getImageData(0, 0, 900, 900);
       const d = imgData.data;
-      // Convert to grayscale in-place
-      const grays = new Uint8Array(450 * 450);
+      const grays = new Uint8Array(900 * 900);
       for (let i = 0; i < grays.length; i++) {
         grays[i] = Math.round(0.299 * d[i*4] + 0.587 * d[i*4+1] + 0.114 * d[i*4+2]);
       }
       // 90th-percentile brightness ≈ background
       const sorted = grays.slice().sort();
       const bgBright = sorted[Math.floor(sorted.length * 0.9)];
-      const cutoff = bgBright * 0.80; // pixels darker than 80% of bg → black
+      const cutoff = bgBright * 0.80;
       for (let i = 0; i < grays.length; i++) {
         const v = grays[i] < cutoff ? 0 : 255;
         d[i*4] = d[i*4+1] = d[i*4+2] = v; d[i*4+3] = 255;
@@ -355,26 +354,39 @@ export default function SudokuApp() {
 
       // 4. Recognise
       setScanStatus("⏳ Erkenne Ziffern…");
-      const worker = await Tesseract.createWorker("eng");
+      const worker = await Tesseract.createWorker("eng", 1);
       await worker.setParameters({
         tessedit_char_whitelist: "123456789",
-        tessedit_pageseg_mode: "11", // PSM_SPARSE_TEXT
+        tessedit_pageseg_mode: "6", // SINGLE_UNIFORM_BLOCK — better structured output
       });
       const { data } = await worker.recognize(gridCanvas);
       await worker.terminate();
 
-      // 5. Map recognised chars to 9×9 grid by bounding-box centre
+      // 5. Map recognised chars to 9×9 grid.
+      // Key insight: Tesseract may group nearby digits into one "word" (e.g. "583").
+      // We therefore drill into word.symbols for individual character bboxes.
       const grid = Array(81).fill(0);
-      const cell = 50; // 450 / 9
-      for (const word of data.words) {
-        const ch = word.text.trim().replace(/[^1-9]/g, "");
-        if (ch.length !== 1) continue;
-        const cx = (word.bbox.x0 + word.bbox.x1) / 2;
-        const cy = (word.bbox.y0 + word.bbox.y1) / 2;
-        const col = Math.min(8, Math.floor(cx / cell));
-        const row = Math.min(8, Math.floor(cy / cell));
-        grid[row * 9 + col] = parseInt(ch);
+      const cellSize = 900 / 9; // 100px per cell
+
+      const placeChar = (ch, bbox) => {
+        if (!ch || !/^[1-9]$/.test(ch.trim())) return;
+        const cx = (bbox.x0 + bbox.x1) / 2;
+        const cy = (bbox.y0 + bbox.y1) / 2;
+        const col = Math.min(8, Math.max(0, Math.floor(cx / cellSize)));
+        const row = Math.min(8, Math.max(0, Math.floor(cy / cellSize)));
+        grid[row * 9 + col] = parseInt(ch.trim());
+      };
+
+      for (const word of (data.words || [])) {
+        if (word.symbols && word.symbols.length > 0) {
+          for (const sym of word.symbols) placeChar(sym.text, sym.bbox);
+        } else {
+          const ch = word.text?.trim().replace(/[^1-9]/g, "");
+          if (ch?.length === 1) placeChar(ch, word.bbox);
+        }
       }
+      // also sweep top-level symbols in case words missed something
+      for (const sym of (data.symbols || [])) placeChar(sym.text, sym.bbox);
 
       const result = grid.join("");
       const filled = grid.filter(v => v > 0).length;
