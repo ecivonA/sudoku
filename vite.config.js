@@ -12,7 +12,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
 
       // App-Shell + Assets cachen, damit alles offline funktioniert
-      includeAssets: ['icons/icon.svg', 'icons/icon-maskable.svg', 'apple-touch-icon.png'],
+      includeAssets: ['icons/icon.svg', 'icons/icon-maskable.svg', 'icons/apple-touch-icon-180x180.png'],
 
       manifest: {
         name: 'Sudoku Helper',
@@ -24,29 +24,29 @@ export default defineConfig({
         orientation: 'portrait',
         background_color: '#0d1b2a',
         theme_color: '#0d1b2a',
-        icons: [
+		icons: [
 		  {
 			src: 'icons/pwa-64x64.png',
 			sizes: '64x64',
 			type: 'image/png',
 		  },
 		  {
-            src: 'icons/pwa-192.png',
-            sizes: '192x192',
-            type: 'image/png',
-          },
-          {
-            src: 'icons/pwa-512.png',
-            sizes: '512x512',
-            type: 'image/png',
-          },
-          {
-            src: 'icons/icon-maskable-512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'maskable',
-          },
-        ],
+			src: 'icons/pwa-192x192.png',
+			sizes: '192x192',
+			type: 'image/png',
+		  },
+		  {
+			src: 'icons/pwa-512x512.png',
+			sizes: '512x512',
+			type: 'image/png',
+		  },
+		  {
+			src: 'icons/maskable-icon-512x512.png',
+			sizes: '512x512',
+			type: 'image/png',
+			purpose: 'maskable',
+		  },
+		],
       },
 
       workbox: {
