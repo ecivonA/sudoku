@@ -1,0 +1,49 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0d1b2a"/>
+      <stop offset="60%" stop-color="#1b2838"/>
+      <stop offset="100%" stop-color="#0a1628"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="42%" r="65%">
+      <stop offset="0%" stop-color="#c9a84c" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#c9a84c" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <rect width="512" height="512" fill="url(#glow)"/>
+
+  <!-- Sudoku grid -->
+  <g transform="translate(56,56)">
+    <rect x="0" y="0" width="400" height="400" rx="6" fill="none" stroke="#c9a84c" stroke-width="10"/>
+
+    <!-- thin inner grid lines -->
+    <g stroke="#c9a84c" stroke-opacity="0.35" stroke-width="2">
+      <line x1="44.4"  y1="0" x2="44.4"  y2="400"/>
+      <line x1="88.8"  y1="0" x2="88.8"  y2="400"/>
+      <line x1="177.6" y1="0" x2="177.6" y2="400"/>
+      <line x1="222.2" y1="0" x2="222.2" y2="400"/>
+      <line x1="311"   y1="0" x2="311"   y2="400"/>
+      <line x1="355.6" y1="0" x2="355.6" y2="400"/>
+
+      <line x1="0" y1="44.4"  x2="400" y2="44.4"/>
+      <line x1="0" y1="88.8"  x2="400" y2="88.8"/>
+      <line x1="0" y1="177.6" x2="400" y2="177.6"/>
+      <line x1="0" y1="222.2" x2="400" y2="222.2"/>
+      <line x1="0" y1="311"   x2="400" y2="311"/>
+      <line x1="0" y1="355.6" x2="400" y2="355.6"/>
+    </g>
+
+    <!-- bold 3x3 box dividers -->
+    <g stroke="#c9a84c" stroke-width="6">
+      <line x1="133.3" y1="0" x2="133.3" y2="400"/>
+      <line x1="266.6" y1="0" x2="266.6" y2="400"/>
+      <line x1="0" y1="133.3" x2="400" y2="133.3"/>
+      <line x1="0" y1="266.6" x2="400" y2="266.6"/>
+    </g>
+
+    <!-- highlighted cell -->
+    <rect x="266.6" y="133.3" width="44.45" height="44.45" fill="#c9a84c" fill-opacity="0.85"/>
+  </g>
+</svg>

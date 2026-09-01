@@ -1,0 +1,47 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0d1b2a"/>
+      <stop offset="60%" stop-color="#1b2838"/>
+      <stop offset="100%" stop-color="#0a1628"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="42%" r="65%">
+      <stop offset="0%" stop-color="#c9a84c" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#c9a84c" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- background fills full canvas (required for maskable) -->
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <rect width="512" height="512" fill="url(#glow)"/>
+
+  <!-- Sudoku grid, scaled down to fit within the safe zone (~80% center circle) -->
+  <g transform="translate(106,106)">
+    <rect x="0" y="0" width="300" height="300" rx="5" fill="none" stroke="#c9a84c" stroke-width="8"/>
+
+    <g stroke="#c9a84c" stroke-opacity="0.35" stroke-width="1.5">
+      <line x1="33.3"  y1="0" x2="33.3"  y2="300"/>
+      <line x1="66.6"  y1="0" x2="66.6"  y2="300"/>
+      <line x1="133.2" y1="0" x2="133.2" y2="300"/>
+      <line x1="166.5" y1="0" x2="166.5" y2="300"/>
+      <line x1="233.1" y1="0" x2="233.1" y2="300"/>
+      <line x1="266.4" y1="0" x2="266.4" y2="300"/>
+
+      <line x1="0" y1="33.3"  x2="300" y2="33.3"/>
+      <line x1="0" y1="66.6"  x2="300" y2="66.6"/>
+      <line x1="0" y1="133.2" x2="300" y2="133.2"/>
+      <line x1="0" y1="166.5" x2="300" y2="166.5"/>
+      <line x1="0" y1="233.1" x2="300" y2="233.1"/>
+      <line x1="0" y1="266.4" x2="300" y2="266.4"/>
+    </g>
+
+    <g stroke="#c9a84c" stroke-width="5">
+      <line x1="100" y1="0" x2="100" y2="300"/>
+      <line x1="200" y1="0" x2="200" y2="300"/>
+      <line x1="0" y1="100" x2="300" y2="100"/>
+      <line x1="0" y1="200" x2="300" y2="200"/>
+    </g>
+
+    <rect x="200" y="100" width="33.3" height="33.3" fill="#c9a84c" fill-opacity="0.85"/>
+  </g>
+</svg>
