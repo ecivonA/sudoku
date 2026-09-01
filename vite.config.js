@@ -24,6 +24,14 @@ export default defineConfig({
         orientation: 'portrait',
         background_color: '#0d1b2a',
         theme_color: '#0d1b2a',
+		screenshots: [
+		  {
+			src: 'icons/screenshot.png',
+			sizes: '540x720',
+			type: 'image/png',
+			form_factor: 'narrow',
+		  },
+		],
 		icons: [
 		  {
 			src: 'icons/pwa-64x64.png',
