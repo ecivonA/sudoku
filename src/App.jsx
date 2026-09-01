@@ -233,7 +233,8 @@ export default function SudokuApp() {
   const [restoreConfirm, setRestoreConfirm] = useState(false);
   const [highlightNum,   setHighlightNum]   = useState(null);
   const [scanStatus,     setScanStatus]     = useState(null);
-  const [debugImg,       setDebugImg]       = useState(null); // data URL of preprocessed canvas
+  const [debugImg,       setDebugImg]       = useState(null);
+  const [debugInfo,      setDebugInfo]      = useState(null); // raw Tesseract result info
   const containerRef = useRef(null);
   const hiddenInputRef = useRef(null);
   const selectedRef = useRef(null);
@@ -414,6 +415,14 @@ export default function SudokuApp() {
           if (ch?.length === 1) placeChar(ch, word.bbox);
         }
       }
+
+      // debug: capture what Tesseract actually returned
+      setDebugInfo({
+        text: data.text?.trim() || "(leer)",
+        words: data.words?.length ?? 0,
+        symbols: data.symbols?.length ?? 0,
+        wordTexts: (data.words || []).map(w => `"${w.text?.trim()}" @(${w.bbox?.x0},${w.bbox?.y0})`).join(", "),
+      });
 
       const result = grid.join("");
       const filled = grid.filter(v => v > 0).length;
@@ -1177,8 +1186,20 @@ export default function SudokuApp() {
             alt="debug"
             style={{ width: "100%", border: `1px solid ${GOLD}44`, borderRadius: "4px", display: "block" }}
           />
+          {debugInfo && (
+            <div style={{
+              marginTop: "6px", background: `${DARK}cc`, border: `1px solid ${GOLD}33`,
+              borderRadius: "4px", padding: "6px 8px",
+              fontSize: "0.58rem", fontFamily: "monospace", color: `${GOLD}cc`,
+              wordBreak: "break-all", lineHeight: 1.6,
+            }}>
+              <div><b>text:</b> {debugInfo.text}</div>
+              <div><b>words:</b> {debugInfo.words} &nbsp; <b>symbols:</b> {debugInfo.symbols}</div>
+              <div><b>word-Texte:</b> {debugInfo.wordTexts || "(keine)"}</div>
+            </div>
+          )}
           <button
-            onClick={() => setDebugImg(null)}
+            onClick={() => { setDebugImg(null); setDebugInfo(null); }}
             style={{ ...btn(`${GOLD}88`, "transparent"), marginTop: "4px", fontSize: "0.58rem", padding: "3px 8px" }}
           >✕ Vorschau schließen</button>
         </div>
