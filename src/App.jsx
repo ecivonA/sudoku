@@ -32,6 +32,7 @@ function saveState(state) {
         anchorCell: bm.anchorCell,
       })),
       showHints: state.showHints,
+      darkMode:  state.darkMode,
     };
     localStorage.setItem("sudoku_state", JSON.stringify(s));
   } catch(e) { /* quota exceeded etc */ }
@@ -52,6 +53,7 @@ function loadState() {
         anchorCell: bm.anchorCell,
       })),
       showHints: s.showHints ?? false,
+      darkMode:  s.darkMode  ?? false,
     };
   } catch(e) { return null; }
 }
@@ -137,16 +139,46 @@ function computeHintCells(grid) {
   return { singles, pairs, dead, hasSingles: singles.size > 0 };
 }
 
-// ── colours ───────────────────────────────────────────────────────────────────
+// ── colour themes ─────────────────────────────────────────────────────────────
 
-const GOLD   = "#c9a84c";
-const DARK   = "#0d1b2a";
-const MID    = "#1b2838";
-const BLUE   = "#7eb8d4";
-const GREEN  = "#5dbf8a";
-const RED    = "#e06060";
-const ORANGE = "#e07830";
-const LILAC  = "#a889d4";
+const DARK_THEME = {
+  GOLD:   "#c9a84c",
+  DARK:   "#0d1b2a",
+  MID:    "#1b2838",
+  BLUE:   "#7eb8d4",
+  GREEN:  "#5dbf8a",
+  RED:    "#e06060",
+  ORANGE: "#e07830",
+  LILAC:  "#a889d4",
+  BG:     "linear-gradient(160deg, #0d1b2a 0%, #1b2838 60%, #0a1628 100%)",
+  // special cell backgrounds
+  GRP_BG:      "#253347",
+  SAMEVAL_BG:  "#5c3f7a",
+  ERR_BG:      "#4a1010",
+  HN_FREE_BG:  "#253040",
+  HN_CONF_BG:  "#3a2020",
+  HN_NOCH_BG:  "#3a1818",
+  HN_BLOK_BG:  "#2a4a2a",
+};
+
+const LIGHT_THEME = {
+  GOLD:   "#9a6f1e",
+  DARK:   "#ffffff",
+  MID:    "#f5f5f5",
+  BLUE:   "#1a6fa8",
+  GREEN:  "#1a7a45",
+  RED:    "#c03030",
+  ORANGE: "#b85010",
+  LILAC:  "#6040b0",
+  BG:     "linear-gradient(160deg, #eef1f5 0%, #e2e8f0 60%, #d8e2ed 100%)",
+  GRP_BG:      "#e4ecf5",
+  SAMEVAL_BG:  "#e0d0f8",
+  ERR_BG:      "#ffd5d5",
+  HN_FREE_BG:  "#d0e4f5",
+  HN_CONF_BG:  "#f0d0d0",
+  HN_NOCH_BG:  "#f5d5d5",
+  HN_BLOK_BG:  "#c8ecd4",
+};
 
 function btn(color, bg, extra = {}) {
   return {
@@ -229,6 +261,7 @@ export default function SudokuApp() {
   const [errors,         setErrors]         = useState(() => saved ? checkErrors(saved.grid) : new Set());
   const [candidateMode,  setCandidateMode]  = useState(false);
   const [showHints,      setShowHints]      = useState(saved?.showHints  ?? false);
+  const [darkMode,       setDarkMode]       = useState(saved?.darkMode   ?? false);
   const [resetConfirm,   setResetConfirm]   = useState(false);
   const [restoreConfirm, setRestoreConfirm] = useState(false);
   const [highlightNum,   setHighlightNum]   = useState(null);
@@ -245,8 +278,8 @@ export default function SudokuApp() {
   // ── persist on every relevant change ─────────────────────────────────────
 
   useEffect(() => {
-    saveState({ phase, grid, history, bookmarks, showHints });
-  }, [phase, grid, history, bookmarks, showHints]);
+    saveState({ phase, grid, history, bookmarks, showHints, darkMode });
+  }, [phase, grid, history, bookmarks, showHints, darkMode]);
 
   // ── helpers ───────────────────────────────────────────────────────────────
 
@@ -821,6 +854,11 @@ export default function SudokuApp() {
     return "impossible";
   };
 
+  // ── theme ─────────────────────────────────────────────────────────────────
+
+  const T = darkMode ? LIGHT_THEME : DARK_THEME;
+  const { GOLD, DARK, MID, BLUE, GREEN, RED, ORANGE, LILAC } = T;
+
   // ── render ────────────────────────────────────────────────────────────────
 
   return (
@@ -830,7 +868,7 @@ export default function SudokuApp() {
       onClick={e => { if (e.target === e.currentTarget) { setSelected(null); setHighlightNum(null); resetFlags(); } }}
       style={{
         minHeight: "100vh",
-        background: `linear-gradient(160deg, ${DARK} 0%, #1b2838 60%, #0a1628 100%)`,
+        background: T.BG,
         display: "flex", flexDirection: "column", alignItems: "center",
         justifyContent: "center", fontFamily: "Georgia,serif",
         padding: "10px", boxSizing: "border-box", outline: "none",
@@ -858,6 +896,16 @@ export default function SudokuApp() {
             <TagIcon color={ORANGE} size={9}/> {bookmarks.length}
           </div>
         )}
+        <button
+          onClick={() => setDarkMode(d => !d)}
+          title={darkMode ? "Dunkles Theme" : "Helles Theme"}
+          style={{
+            background: "none", border: `1px solid ${GOLD}44`, borderRadius: "50%",
+            width: "26px", height: "26px", cursor: "pointer",
+            fontSize: "0.85rem", lineHeight: 1, padding: 0,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >{darkMode ? "☀️" : "🌙"}</button>
       </div>
 
       {phase === "input" && (
@@ -916,27 +964,29 @@ export default function SudokuApp() {
 
           let bg = MID;
           let fg = phase === "input" ? (cell.value ? LILAC : `${LILAC}22`) : (cell.given ? LILAC : BLUE);
-          let candFg = "rgba(201,168,76,0.85)";
-          let candExclFg = "rgba(201,168,76,0.22)";
+          let candFg = darkMode ? "rgba(100,70,10,0.85)" : "rgba(201,168,76,0.85)";
+          let candExclFg = darkMode ? "rgba(100,70,10,0.22)" : "rgba(201,168,76,0.22)";
 
           if (sel) {
             bg = phase === "input" ? `${LILAC}44` : GOLD;
-            fg = phase === "input" ? "#fff" : DARK;
-            candFg = `${DARK}cc`; candExclFg = `${DARK}44`;
+            fg = phase === "input" ? (darkMode ? "#111" : "#fff") : DARK;
+            candFg = darkMode ? "rgba(10,10,10,0.8)" : `${DARK}cc`;
+            candExclFg = darkMode ? "rgba(10,10,10,0.3)" : `${DARK}44`;
           } else if (hnBlocked) {
-            bg = "#2a4a2a"; fg = GREEN;  // has the number → green
+            bg = T.HN_BLOK_BG; fg = GREEN;
           } else if (hnConflict) {
-            bg = "#3a2020"; fg = `${RED}88`;  // blocked by peer → dark red
+            bg = T.HN_CONF_BG; fg = `${RED}88`;
           } else if (hnNoCandidate) {
-            bg = "#3a1818"; fg = `${RED}55`;  // nicht mehr als kandidat → dunkelrot
+            bg = T.HN_NOCH_BG; fg = `${RED}55`;
           } else if (hnFree) {
-            bg = "#253040"; fg = `${BLUE}cc`;  // possible → highlighted
+            bg = T.HN_FREE_BG; fg = `${BLUE}cc`;
           } else if (smv) {
-            bg = "#5c3f7a"; fg = "#fff"; candFg = "rgba(255,255,255,0.75)";
+            bg = T.SAMEVAL_BG; fg = darkMode ? "#111" : "#fff";
+            candFg = darkMode ? "rgba(0,0,0,0.75)" : "rgba(255,255,255,0.75)";
           } else if (grp) {
-            bg = "#253347"; fg = cell.given ? LILAC : "#9ecde0";
+            bg = T.GRP_BG; fg = cell.given ? LILAC : (darkMode ? "#3a6080" : "#9ecde0");
           }
-          if (err && !sel) { bg = "#4a1010"; fg = "#ff8888"; }
+          if (err && !sel) { bg = T.ERR_BG; fg = darkMode ? "#c03030" : "#ff8888"; }
 
           const bRight  = (c+1)%3===0 && c!==8;
           const bBottom = (r+1)%3===0 && r!==8;
