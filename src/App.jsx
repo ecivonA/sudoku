@@ -169,6 +169,52 @@ function TagIcon({ color = RED, size = 10 }) {
   );
 }
 
+// ── Sudoku OCR helpers ────────────────────────────────────────────────────────
+
+async function loadTesseract() {
+  if (window.Tesseract) return window.Tesseract;
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+    s.onload = () => resolve(window.Tesseract);
+    s.onerror = () => reject(new Error("Tesseract.js konnte nicht geladen werden"));
+    document.head.appendChild(s);
+  });
+}
+
+function findGridBounds(canvas) {
+  const ctx = canvas.getContext("2d");
+  const { width, height } = canvas;
+  const px = ctx.getImageData(0, 0, width, height).data;
+
+  // row/col histograms of dark pixels (normalised 0..1)
+  const rowH = new Float32Array(height);
+  const colH = new Float32Array(width);
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      const gray = 0.299 * px[i] + 0.587 * px[i+1] + 0.114 * px[i+2];
+      if (gray < 140) { rowH[y]++; colH[x]++; }
+    }
+  for (let y = 0; y < height; y++) rowH[y] /= width;
+  for (let x = 0; x < width; x++) colH[x] /= height;
+
+  const thresh = 0.04;
+  let top = 0, bottom = height - 1, left = 0, right = width - 1;
+  for (let y = 0; y < height; y++) if (rowH[y] > thresh) { top = y; break; }
+  for (let y = height - 1; y >= 0; y--) if (rowH[y] > thresh) { bottom = y; break; }
+  for (let x = 0; x < width; x++) if (colH[x] > thresh) { left = x; break; }
+  for (let x = width - 1; x >= 0; x--) if (colH[x] > thresh) { right = x; break; }
+
+  const w = right - left, h = bottom - top;
+  // fall back to centred square if result looks wrong
+  if (w < 50 || h < 50 || w / h > 1.6 || h / w > 1.6) {
+    const size = Math.min(width, height) * 0.9;
+    return { x: (width - size) / 2, y: (height - size) / 2, w: size, h: size };
+  }
+  return { x: left, y: top, w, h };
+}
+
 // ── component ─────────────────────────────────────────────────────────────────
 
 const saved = loadState();
@@ -185,9 +231,11 @@ export default function SudokuApp() {
   const [resetConfirm,   setResetConfirm]   = useState(false);
   const [restoreConfirm, setRestoreConfirm] = useState(false);
   const [highlightNum,   setHighlightNum]   = useState(null);
+  const [scanStatus,     setScanStatus]     = useState(null); // null | "scanning" | "error" | string
   const containerRef = useRef(null);
   const hiddenInputRef = useRef(null);
   const selectedRef = useRef(null);
+  const fileInputRef = useRef(null);
   const isPadMouseDown = useRef(false);
 
   // keep selectedRef in sync
@@ -250,6 +298,75 @@ export default function SudokuApp() {
   useEffect(() => {
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
+  }, [handlePaste]);
+
+  // ── scan image via Tesseract.js (no API key needed) ──────────────────────
+
+  const handleScanImage = useCallback(async (file) => {
+    if (!file || !file.type.startsWith("image/")) return;
+    setScanStatus("scanning");
+    try {
+      // 1. Load image onto canvas
+      const imgUrl = URL.createObjectURL(file);
+      const img = await new Promise((res, rej) => {
+        const i = new Image();
+        i.onload = () => res(i);
+        i.onerror = () => rej(new Error("Bild konnte nicht geladen werden"));
+        i.src = imgUrl;
+      });
+      URL.revokeObjectURL(imgUrl);
+
+      const src = document.createElement("canvas");
+      src.width = img.naturalWidth; src.height = img.naturalHeight;
+      src.getContext("2d").drawImage(img, 0, 0);
+
+      // 2. Find grid bounds & normalise to 450×450 with contrast boost
+      const bounds = findGridBounds(src);
+      const gridCanvas = document.createElement("canvas");
+      gridCanvas.width = 450; gridCanvas.height = 450;
+      const gCtx = gridCanvas.getContext("2d");
+      gCtx.filter = "grayscale(1) contrast(2.5) brightness(1.1)";
+      gCtx.drawImage(src, bounds.x, bounds.y, bounds.w, bounds.h, 0, 0, 450, 450);
+      gCtx.filter = "none";
+
+      // 3. Load Tesseract (cached after first call)
+      setScanStatus("⏳ Lade OCR-Engine…");
+      const Tesseract = await loadTesseract();
+
+      // 4. Recognise
+      setScanStatus("⏳ Erkenne Ziffern…");
+      const worker = await Tesseract.createWorker("eng");
+      await worker.setParameters({
+        tessedit_char_whitelist: "123456789",
+        tessedit_pageseg_mode: "11", // PSM_SPARSE_TEXT
+      });
+      const { data } = await worker.recognize(gridCanvas);
+      await worker.terminate();
+
+      // 5. Map recognised chars to 9×9 grid by bounding-box centre
+      const grid = Array(81).fill(0);
+      const cell = 50; // 450 / 9
+      for (const word of data.words) {
+        const ch = word.text.trim().replace(/[^1-9]/g, "");
+        if (ch.length !== 1) continue;
+        const cx = (word.bbox.x0 + word.bbox.x1) / 2;
+        const cy = (word.bbox.y0 + word.bbox.y1) / 2;
+        const col = Math.min(8, Math.floor(cx / cell));
+        const row = Math.min(8, Math.floor(cy / cell));
+        grid[row * 9 + col] = parseInt(ch);
+      }
+
+      const result = grid.join("");
+      const filled = grid.filter(v => v > 0).length;
+      if (filled < 17) { // minimum clues for a valid sudoku
+        setScanStatus(`Nur ${filled} Ziffern erkannt — bitte ein klareres Foto/Screenshot versuchen.`);
+        return;
+      }
+      handlePaste({ preventDefault: () => {}, clipboardData: { getData: () => result } });
+      setScanStatus(null);
+    } catch (err) {
+      setScanStatus("Fehler: " + err.message);
+    }
   }, [handlePaste]);
 
   // ── keyboard handler ──────────────────────────────────────────────────────
@@ -719,7 +836,7 @@ export default function SudokuApp() {
             return false;
           })();
           const hnFree = highlightNum && !selected && !cell.value && !hnConflict;
-          // freie Felder, in denen highlightNum kein aktiver Kandidat (mehr) ist → rot
+          // freie Felder, in denen highlightNum kein aktiver Kandidat mehr ist → rot
           const hnNoCandidate = highlightNum && !selected && !cell.value && !cell.given
             && !cell.candidates.has(highlightNum);
 
@@ -831,7 +948,6 @@ export default function SudokuApp() {
 
           const handlePadInteract = () => {
             if (highlightNum && !selected) {
-              // rot-modus: Zahl wechseln per Klick
               if (!full) setHighlightNum(n);
             } else {
               if (!full) handleInput(n);
@@ -843,7 +959,6 @@ export default function SudokuApp() {
               key={n}
               onClick={handlePadInteract}
               onMouseMove={() => {
-                // Wischen nur bei gedrückter Maus (Drag)
                 if (isPadMouseDown.current && highlightNum && !selected && !full) setHighlightNum(n);
               }}
               onTouchMove={e => {
@@ -954,6 +1069,42 @@ export default function SudokuApp() {
               fontSize: "0.7rem", fontFamily: "monospace", outline: "none",
             }}
           />
+          {/* hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={e => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) handleScanImage(file);
+            }}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={scanStatus === "scanning" || (typeof scanStatus === "string" && scanStatus.startsWith("⏳"))}
+            style={{
+              ...btn(LILAC, `${LILAC}18`),
+              padding: "7px 10px",
+              opacity: (scanStatus === "scanning" || (typeof scanStatus === "string" && scanStatus.startsWith("⏳"))) ? 0.6 : 1,
+              cursor: (scanStatus === "scanning" || (typeof scanStatus === "string" && scanStatus.startsWith("⏳"))) ? "wait" : "pointer",
+              whiteSpace: "nowrap",
+            }}
+            onMouseEnter={e => { if (!scanStatus?.startsWith?.("⏳")) e.currentTarget.style.background = `${LILAC}30`; }}
+            onMouseLeave={e => e.currentTarget.style.background = `${LILAC}18`}
+          >
+            {scanStatus?.startsWith?.("⏳") ? scanStatus : "📷 Scannen"}
+          </button>
+        </div>
+      )}
+      {/* scan error / status message */}
+      {phase === "input" && scanStatus && !scanStatus.startsWith("⏳") && (
+        <div style={{
+          width: "min(92vw,430px)", marginTop: "4px",
+          color: RED, fontSize: "0.68rem", textAlign: "center", letterSpacing: "0.04em",
+        }}>
+          ⚠ {scanStatus}
         </div>
       )}
 
