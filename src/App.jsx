@@ -278,15 +278,12 @@ export default function SudokuApp() {
     }
   }, []);
 
-  // ── paste handler (Ctrl+V with 81-char sudoku string) ────────────────────
+  // ── shared grid loader (used by paste and scan) ──────────────────────────
 
-  const handlePaste = useCallback((e) => {
-    const text = (e.clipboardData || window.clipboardData).getData("text").trim();
-    if (!/^[0-9]{81}$/.test(text)) return;
-    e.preventDefault();
+  const loadGridFromString = useCallback((digits) => {
     const next = emptyGrid();
     for (let i = 0; i < 81; i++) {
-      const val = parseInt(text[i]);
+      const val = parseInt(digits[i]);
       const r = Math.floor(i/9), c = i%9;
       if (val >= 1 && val <= 9) { next[r][c].value = val; }
     }
@@ -295,11 +292,6 @@ export default function SudokuApp() {
     setErrors(new Set()); setSelected([0,0]); setCandidateMode(false);
     setResetConfirm(false); setRestoreConfirm(false);
   }, []);
-
-  useEffect(() => {
-    window.addEventListener("paste", handlePaste);
-    return () => window.removeEventListener("paste", handlePaste);
-  }, [handlePaste]);
 
   // ── scan image via Tesseract.js (no API key needed) ──────────────────────
 
@@ -415,11 +407,40 @@ export default function SudokuApp() {
         setScanStatus(`Nur ${filled} Ziffern erkannt — bitte ein klareres Foto/Screenshot versuchen.`);
         return;
       }
-      handlePaste({ preventDefault: () => {}, clipboardData: { getData: () => result } });
+      loadGridFromString(result);
       setScanStatus(null);
     } catch (err) {
       setScanStatus("Fehler: " + err.message);
     }
+  }, [loadGridFromString]);
+
+  // ── paste handler (Ctrl+V with 81-char string OR image) ─────────────────
+
+  const handlePaste = useCallback((e) => {
+    const cd = e.clipboardData || window.clipboardData;
+
+    // image in clipboard → scan it
+    if (cd?.items) {
+      for (const item of cd.items) {
+        if (item.type.startsWith("image/")) {
+          e.preventDefault();
+          const file = item.getAsFile();
+          if (file) handleScanImage(file);
+          return;
+        }
+      }
+    }
+
+    // plain text → try 81-digit string
+    const text = cd.getData("text").trim();
+    if (!/^[0-9]{81}$/.test(text)) return;
+    e.preventDefault();
+    loadGridFromString(text);
+  }, [handleScanImage, loadGridFromString]);
+
+  useEffect(() => {
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
   }, [handlePaste]);
 
   // ── keyboard handler ──────────────────────────────────────────────────────
@@ -1112,7 +1133,7 @@ export default function SudokuApp() {
             onChange={e => {
               const text = e.target.value.trim();
               if (/^[0-9]{81}$/.test(text)) {
-                handlePaste({ preventDefault: ()=>{}, clipboardData: { getData: () => text } });
+                loadGridFromString(text);
                 e.target.value = "";
               }
             }}
