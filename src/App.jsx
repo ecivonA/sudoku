@@ -1017,13 +1017,17 @@ export default function SudokuApp() {
 
               {cell.value ? (
                 <span style={{
-                  fontSize: "clamp(1rem,3.8vw,1.6rem)", fontWeight: "bold",
+                  fontSize: cell.given
+                    ? "clamp(1.2rem,4.8vw,2rem)"
+                    : "clamp(1.05rem,4.2vw,1.75rem)",
+                  fontWeight: "bold",
                   color: fg, userSelect: "none",
+                  letterSpacing: "-0.02em",
                 }}>{cell.value}</span>
               ) : phase === "solve" ? (
                 <div style={{
                   display: "grid", gridTemplateColumns: "repeat(3,1fr)",
-                  gridTemplateRows: "repeat(3,1fr)", width: "90%", height: "90%",
+                  gridTemplateRows: "repeat(3,1fr)", width: "92%", height: "92%",
                 }}>
                   {[1,2,3,4,5,6,7,8,9].map(n => {
                     const logicHas = cell.candidates.has(n);
@@ -1031,7 +1035,7 @@ export default function SudokuApp() {
                     const visible  = logicHas || excluded;
                     return (
                       <span key={n} style={{
-                        fontSize: "clamp(0.3rem,0.95vw,0.5rem)",
+                        fontSize: "clamp(0.38rem,1.15vw,0.58rem)",
                         color: !visible ? "transparent" : excluded ? candExclFg : candFg,
                         display: "flex", alignItems: "center", justifyContent: "center",
                         userSelect: "none", lineHeight: 1, fontFamily: "monospace",
