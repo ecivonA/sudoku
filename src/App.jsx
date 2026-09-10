@@ -1018,8 +1018,8 @@ export default function SudokuApp() {
               {cell.value ? (
                 <span style={{
                   fontSize: cell.given
-                    ? "clamp(1.2rem,4.8vw,2rem)"
-                    : "clamp(1.05rem,4.2vw,1.75rem)",
+                    ? "clamp(1.4rem,5.8vw,2.5rem)"
+                    : "clamp(1.2rem,5.2vw,2.2rem)",
                   fontWeight: "bold",
                   color: fg, userSelect: "none",
                   letterSpacing: "-0.02em",
