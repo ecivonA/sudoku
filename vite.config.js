@@ -33,50 +33,20 @@ export default defineConfig({
 			params: { files: [{ name: 'image', accept: ['image/*'] }] },
 		},
 		  screenshots: [
-		  {
-			src: 'icons/screenshot.png',
-			sizes: '540x720',
-			type: 'image/png',
-			form_factor: 'narrow',
-		  },
+		  { src: 'icons/screenshot.png', sizes: '540x720', type: 'image/png', form_factor: 'narrow', },
 		],
 		icons: [
-		  {
-			src: 'icons/pwa-64x64.png',
-			sizes: '64x64',
-			type: 'image/png',
-		  },
-		  {
-			src: 'icons/pwa-192x192.png',
-			sizes: '192x192',
-			type: 'image/png',
-		  },
-		  {
-			src: 'icons/pwa-512x512.png',
-			sizes: '512x512',
-			type: 'image/png',
-		  },
-		  {
-			src: 'icons/maskable-icon-512x512.png',
-			sizes: '512x512',
-			type: 'image/png',
-			purpose: 'maskable',
-		  },
+		  { src: 'icons/pwa-64x64.png', sizes: '64x64', type: 'image/png', },
+		  { src: 'icons/pwa-192x192.png', sizes: '192x192', type: 'image/png', },
+		  { src: 'icons/pwa-512x512.png', sizes: '512x512', type: 'image/png', },
+		  { src: 'icons/maskable-icon-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable', },
 		],
       },
 
 	injectManifest: {
 		globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
 	},
-		
-/*
-      workbox: {
-        // alles, was Vite baut, in den Service-Worker-Cache aufnehmen
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
-        // SPA-Routing: bei Offline-Zugriff immer index.html ausliefern
-        navigateFallback: '/sudoku/index.html',
-      },
-*/
+
       devOptions: {
         enabled: true, // PWA auch im Dev-Server (npm run dev) testen
       },
