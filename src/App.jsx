@@ -527,17 +527,23 @@ export default function SudokuApp() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("shared") !== "1") return;
+    setPhase("input");
     (async () => {
       try {
-        if (!("caches" in window)) return;
+        if (!("caches" in window)) {
+          setScanStatus("Cache Storage im Browser nicht verfügbar.");
+          return;
+        }
         const cache = await caches.open("shared-images");
         const res = await cache.match("/shared-image");
         if (res) {
           const blob = await res.blob();
           await cache.delete("/shared-image");
           const file = new File([blob], "shared.jpg", { type: blob.type || "image/jpeg" });
-          setPhase("input");
           handleScanImage(file);
+        } else {
+          // sichtbar statt still zu verschwinden — hilft beim Debuggen
+          setScanStatus("Kein geteiltes Bild gefunden (Cache war leer). Bitte 📷 Scannen manuell versuchen.");
         }
       } catch (e) {
         setScanStatus("Fehler beim Laden des geteilten Bildes: " + e.message);
