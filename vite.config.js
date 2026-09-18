@@ -10,7 +10,9 @@ export default defineConfig({
 
     VitePWA({
       registerType: 'autoUpdate',
-
+		strategies: 'injectManifest',
+		srcDir: 'src',
+		filename: 'sw.js',
       // App-Shell + Assets cachen, damit alles offline funktioniert
       includeAssets: ['icons/icon.svg', 'icons/icon-maskable.svg', 'icons/apple-touch-icon-180x180.png'],
 
