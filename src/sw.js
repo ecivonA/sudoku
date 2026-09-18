@@ -1,0 +1,41 @@
+// src/sw.js — custom service worker (verwendet mit vite-plugin-pwa "injectManifest")
+
+import { precacheAndRoute } from "workbox-precaching";
+
+precacheAndRoute(self.__WB_MANIFEST);
+
+const BASE = "/sudoku/"; // muss zu `base` in vite.config.js passen
+const SHARE_TARGET_PATH = `${BASE}share-target/`;
+const APP_SHELL = `${BASE}index.html`;
+
+self.addEventListener("fetch", (event) => {
+  const { request } = event;
+  const url = new URL(request.url);
+
+  // 1) Share-Target: Bild aus dem "Teilen"-Menü entgegennehmen
+  if (request.method === "POST" && url.pathname === SHARE_TARGET_PATH) {
+    event.respondWith(handleShareTarget(event));
+    return;
+  }
+
+  // 2) SPA-Offline-Fallback (ersetzt workbox.navigateFallback aus generateSW):
+  //    bei Navigation zuerst Netzwerk versuchen, offline auf die gecachte
+  //    index.html zurückfallen.
+  if (request.mode === "navigate" && request.method === "GET") {
+    event.respondWith(fetch(request).catch(() => caches.match(APP_SHELL)));
+  }
+});
+
+async function handleShareTarget(event) {
+  try {
+    const formData = await event.request.formData();
+    const file = formData.get("image");
+    if (file) {
+      const cache = await caches.open("shared-images");
+      await cache.put("/shared-image", new Response(file));
+    }
+  } catch (e) {
+    // fällt einfach durch — App findet dann nichts im Cache
+  }
+  return Response.redirect(`${BASE}?shared=1`, 303);
+}
