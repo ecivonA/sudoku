@@ -1,6 +1,10 @@
 // src/sw.js — custom service worker (verwendet mit vite-plugin-pwa "injectManifest")
 
 import { precacheAndRoute } from "workbox-precaching";
+import { clientsClaim } from "workbox-core";
+
+self.skipWaiting();
+clientsClaim();
 
 precacheAndRoute(self.__WB_MANIFEST);
 
@@ -18,24 +22,29 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 2) SPA-Offline-Fallback (ersetzt workbox.navigateFallback aus generateSW):
-  //    bei Navigation zuerst Netzwerk versuchen, offline auf die gecachte
-  //    index.html zurückfallen.
+  // 2) SPA-Offline-Fallback: bei Navigation zuerst Netzwerk versuchen,
+  //    offline auf die gecachte index.html zurückfallen.
   if (request.mode === "navigate" && request.method === "GET") {
     event.respondWith(fetch(request).catch(() => caches.match(APP_SHELL)));
   }
 });
 
 async function handleShareTarget(event) {
+  console.log("[share-target] POST empfangen:", event.request.url);
   try {
     const formData = await event.request.formData();
+    console.log("[share-target] formData Felder:", [...formData.keys()]);
     const file = formData.get("image");
+    console.log("[share-target] image-Feld:", file);
     if (file) {
       const cache = await caches.open("shared-images");
       await cache.put("/shared-image", new Response(file));
+      console.log("[share-target] Bild im Cache gespeichert, Größe:", file.size);
+    } else {
+      console.warn("[share-target] Kein 'image'-Feld in formData gefunden.");
     }
   } catch (e) {
-    // fällt einfach durch — App findet dann nichts im Cache
+    console.error("[share-target] Fehler:", e);
   }
   return Response.redirect(`${BASE}?shared=1`, 303);
 }
