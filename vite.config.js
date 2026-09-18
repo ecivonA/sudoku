@@ -10,9 +10,9 @@ export default defineConfig({
 
     VitePWA({
       registerType: 'autoUpdate',
-		strategies: 'injectManifest',
-		srcDir: 'src',
-		filename: 'sw.js',
+	  strategies: 'injectManifest', 
+	  srcDir: 'src', 
+	  filename: 'sw.js',
       // App-Shell + Assets cachen, damit alles offline funktioniert
       includeAssets: ['icons/icon.svg', 'icons/icon-maskable.svg', 'icons/apple-touch-icon-180x180.png'],
 
@@ -25,8 +25,14 @@ export default defineConfig({
         display: 'standalone',
         orientation: 'portrait',
         background_color: '#0d1b2a',
-        theme_color: '#0d1b2a',
-		screenshots: [
+		theme_color: '#0d1b2a',
+		share_target: {
+			action: '/sudoku/share-target/',
+			method: 'POST',
+			enctype: 'multipart/form-data',
+			params: { files: [{ name: 'image', accept: ['image/*'] }] },
+		},
+		  screenshots: [
 		  {
 			src: 'icons/screenshot.png',
 			sizes: '540x720',
@@ -59,13 +65,18 @@ export default defineConfig({
 		],
       },
 
+	injectManifest: {
+		globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
+	},
+		
+/*
       workbox: {
         // alles, was Vite baut, in den Service-Worker-Cache aufnehmen
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
         // SPA-Routing: bei Offline-Zugriff immer index.html ausliefern
         navigateFallback: '/sudoku/index.html',
       },
-
+*/
       devOptions: {
         enabled: true, // PWA auch im Dev-Server (npm run dev) testen
       },
