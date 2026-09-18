@@ -58,6 +58,60 @@ function loadState() {
   } catch(e) { return null; }
 }
 
+// ── Rätsel-Bibliothek: kompakte Speicherung mehrerer Spiele ───────────────────
+// Die 81 Ziffern (0-9) werden als eine einzige große Ganzzahl gelesen und in
+// Basis-62 (0-9, A-Z, a-z) umgerechnet. Das ist verlustfrei und nah am
+// theoretischen Minimum (~41 Zeichen), braucht aber statt 81 nur bis zu ~46
+// Zeichen — knapp die Hälfte, ganz ohne Sonderzeichen (JSON-/URL-sicher).
+
+const B62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+function digitsToCompact(digits81) {
+  let num = BigInt(digits81);
+  if (num === 0n) return "0";
+  let out = "";
+  while (num > 0n) {
+    out = B62[Number(num % 62n)] + out;
+    num /= 62n;
+  }
+  return out;
+}
+
+function compactToDigits(compact) {
+  let num = 0n;
+  for (const ch of compact) {
+    const idx = B62.indexOf(ch);
+    if (idx < 0) return null; // korrupter/unbekannter Eintrag
+    num = num * 62n + BigInt(idx);
+  }
+  return num.toString().padStart(81, "0");
+}
+
+// liest die 81 Ziffern aus dem Grid — in der Eingabe-Phase alle belegten
+// Felder, in der Spiel-Phase nur die ursprünglichen Vorgaben (given)
+function gridToDigitString(grid, onlyGiven) {
+  let s = "";
+  for (let r = 0; r < 9; r++)
+    for (let c = 0; c < 9; c++) {
+      const cell = grid[r][c];
+      const include = onlyGiven ? cell.given : !!cell.value;
+      s += include && cell.value ? String(cell.value) : "0";
+    }
+  return s;
+}
+
+function loadLibrary() {
+  try {
+    const raw = localStorage.getItem("sudoku_library");
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) { return []; }
+}
+
+function saveLibrary(lib) {
+  try { localStorage.setItem("sudoku_library", JSON.stringify(lib)); }
+  catch (e) { /* quota exceeded etc */ }
+}
+
 // ── sudoku helpers ────────────────────────────────────────────────────────────
 
 const allNine = () => new Set([1,2,3,4,5,6,7,8,9]);
@@ -266,6 +320,10 @@ export default function SudokuApp() {
   const [restoreConfirm, setRestoreConfirm] = useState(false);
   const [highlightNum,   setHighlightNum]   = useState(null);
   const [scanStatus,     setScanStatus]     = useState(null);
+  const [library,        setLibrary]        = useState(loadLibrary);
+  const [showLibrary,    setShowLibrary]    = useState(false);
+  const [libraryName,    setLibraryName]    = useState("");
+  const [deleteConfirmId,setDeleteConfirmId]= useState(null);
   const containerRef = useRef(null);
   const hiddenInputRef = useRef(null);
   const selectedRef = useRef(null);
@@ -324,6 +382,20 @@ export default function SudokuApp() {
     setGrid(computed); setPhase("input"); setHistory([]); setBookmarks([]);
     setErrors(new Set()); setSelected([0,0]); setCandidateMode(false);
     setResetConfirm(false); setRestoreConfirm(false);
+  }, []);
+
+  // ── load puzzle from URL, e.g. /sudoku/?0004000...(81 digits) or ?p=... ──
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    let raw = params.get("p") || params.get("start") || window.location.search.slice(1);
+    raw = (raw || "").split("&")[0].trim();
+    if (/^[0-9]{81}$/.test(raw)) {
+      loadGridFromString(raw);
+      // clean the URL so a reload/share doesn't re-trigger the same puzzle
+      window.history.replaceState({}, "", window.location.pathname + window.location.hash);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── scan image via Tesseract.js (no API key needed) ──────────────────────
@@ -446,6 +518,34 @@ export default function SudokuApp() {
       setScanStatus("Fehler: " + err.message);
     }
   }, [loadGridFromString]);
+
+  // ── pick up an image shared via the OS "Teilen"-Menü (PWA share target) ──
+  // Requires the manifest/service-worker share-target setup — see PROJEKT-DOKU.md.
+  // Only fires on platforms that support the Web Share Target API (Android/Chrome
+  // installed PWAs); iOS Safari has no equivalent, use the 📷-Scannen button there.
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("shared") !== "1") return;
+    (async () => {
+      try {
+        if (!("caches" in window)) return;
+        const cache = await caches.open("shared-images");
+        const res = await cache.match("/shared-image");
+        if (res) {
+          const blob = await res.blob();
+          await cache.delete("/shared-image");
+          const file = new File([blob], "shared.jpg", { type: blob.type || "image/jpeg" });
+          setPhase("input");
+          handleScanImage(file);
+        }
+      } catch (e) {
+        setScanStatus("Fehler beim Laden des geteilten Bildes: " + e.message);
+      } finally {
+        window.history.replaceState({}, "", window.location.pathname + window.location.hash);
+      }
+    })();
+  }, [handleScanImage]);
 
   // ── paste handler (Ctrl+V with 81-char string OR image) ─────────────────
 
@@ -817,6 +917,36 @@ export default function SudokuApp() {
         }
   }, [grid]);
 
+  // ── Bibliothek: aktuelles Rätsel speichern / laden / löschen ─────────────
+
+  const handleSaveToLibrary = () => {
+    const onlyGiven = phase === "solve";
+    const digits = gridToDigitString(grid, onlyGiven);
+    if (!/[1-9]/.test(digits)) return; // nichts einzutragen
+    const name = libraryName.trim() || `Rätsel vom ${new Date().toLocaleDateString("de-DE")}`;
+    const entry = {
+      id: Date.now() + "-" + Math.random().toString(36).slice(2, 7),
+      name,
+      compact: digitsToCompact(digits),
+      createdAt: Date.now(),
+    };
+    setLibrary(lib => { const next = [entry, ...lib]; saveLibrary(next); return next; });
+    setLibraryName("");
+  };
+
+  const handleLoadFromLibrary = (entry) => {
+    const digits = compactToDigits(entry.compact);
+    if (!digits) return;
+    loadGridFromString(digits);
+    setShowLibrary(false);
+  };
+
+  const handleDeleteFromLibrary = (id) => {
+    if (deleteConfirmId !== id) { setDeleteConfirmId(id); return; }
+    setLibrary(lib => { const next = lib.filter(e => e.id !== id); saveLibrary(next); return next; });
+    setDeleteConfirmId(null);
+  };
+
   // ── derived ───────────────────────────────────────────────────────────────
 
   const isSel     = (r, c) => selected && selected[0] === r && selected[1] === c;
@@ -906,7 +1036,59 @@ export default function SudokuApp() {
             display: "flex", alignItems: "center", justifyContent: "center",
           }}
         >{darkMode ? "☀️" : "🌙"}</button>
+        <button
+          onClick={() => { setShowLibrary(s => !s); setDeleteConfirmId(null); }}
+          title="Rätsel-Bibliothek"
+          style={{
+            background: showLibrary ? `${GOLD}33` : "none", border: `1px solid ${GOLD}44`, borderRadius: "50%",
+            width: "26px", height: "26px", cursor: "pointer",
+            fontSize: "0.8rem", lineHeight: 1, padding: 0,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >📚</button>
       </div>
+
+      {showLibrary && (
+        <div onClick={e => e.stopPropagation()} style={{
+          width: "min(92vw,430px)", marginBottom: "10px", border: `1px solid ${GOLD}44`,
+          borderRadius: "8px", padding: "10px", background: MID, boxSizing: "border-box",
+        }}>
+          <div style={{ display: "flex", gap: "6px", marginBottom: "8px" }}>
+            <input
+              type="text" placeholder="Name für aktuelles Rätsel…" value={libraryName}
+              onChange={e => setLibraryName(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") handleSaveToLibrary(); }}
+              style={{
+                flex: 1, background: `${GOLD}10`, border: `1px solid ${GOLD}44`, color: GOLD,
+                borderRadius: "6px", padding: "6px 8px", fontSize: "0.7rem",
+                fontFamily: "Georgia,serif", outline: "none", minWidth: 0,
+              }}
+            />
+            <button onClick={handleSaveToLibrary} style={{ ...btn(GREEN, `${GREEN}18`), padding: "6px 10px" }}>💾 Speichern</button>
+          </div>
+          {library.length === 0 ? (
+            <p style={{ color: `${GOLD}77`, fontSize: "0.65rem", margin: 0, textAlign: "center" }}>Noch keine gespeicherten Rätsel.</p>
+          ) : (
+            <>
+              <div style={{ maxHeight: "220px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "5px" }}>
+                {library.map(entry => (
+                  <div key={entry.id} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.68rem" }}>
+                    <span style={{ flex: 1, color: BLUE, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.name}</span>
+                    <button onClick={() => handleLoadFromLibrary(entry)} style={{ ...btn(GOLD, `${GOLD}12`), padding: "4px 8px" }}>▶ Laden</button>
+                    <button
+                      onClick={() => handleDeleteFromLibrary(entry.id)}
+                      style={{ ...btn(deleteConfirmId===entry.id ? RED : "#d07070", deleteConfirmId===entry.id ? `${RED}22` : "rgba(200,100,100,0.1)"), padding: "4px 8px" }}
+                    >{deleteConfirmId===entry.id ? "⚠" : "🗑"}</button>
+                  </div>
+                ))}
+              </div>
+              <p style={{ color: `${GOLD}55`, fontSize: "0.58rem", margin: "8px 0 0", textAlign: "center" }}>
+                {library.length} Rätsel · ca. {(JSON.stringify(library).length / 1024).toFixed(1)} KB
+              </p>
+            </>
+          )}
+        </div>
+      )}
 
       {phase === "input" && (
         <p style={{ color: `${LILAC}cc`, fontSize: "0.68rem", margin: "0 0 8px", letterSpacing: "0.06em", textAlign: "center" }}>
